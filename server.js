@@ -183,7 +183,7 @@ const repoCache = new Map();
 function repoFor(cwd) {
   const hit = repoCache.get(cwd); if (hit && hit.at > Date.now() - 60000) return hit.repo;
   let repo = null;
-  try { const url = execFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).trim(); const m = url.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/); if (m) repo = m[1]; } catch {}
+  try { const out = execFileSync('git', ['-C', cwd, 'remote', '-v'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }); const lines = out.split('\n').filter((l) => /github\.com/.test(l)); const pick = lines.find((l) => l.startsWith('origin\t')) || lines[0] || ''; const m = pick.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?(?:\s|$)/); if (m) repo = m[1]; } catch {} // any GitHub remote counts; origin preferred
   repoCache.set(cwd, { repo, at: Date.now() }); return repo;
 }
 function publicBot(b) {
