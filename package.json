@@ -1,0 +1,48 @@
+{
+  "name": "code-crew",
+  "version": "0.1.0",
+  "description": "Grok Bot-style agents on your Claude subscription: persistent Bots with a job, a folder, memory, routines, connectors and a phone-friendly UI, built on Claude Code.",
+  "scripts": {
+    "start": "node bin/code-crew.js start",
+    "setup": "node bin/code-crew.js setup",
+    "check": "node --check server.js && node --check config.js && node --check bin/code-crew.js && node --check public/app.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agents",
+    "bots",
+    "mcp",
+    "grok-bot"
+  ],
+  "author": "Nico",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.319",
+    "qrcode-terminal": "^0.12.0",
+    "web-push": "^3.6.7",
+    "ws": "^8.22.2",
+    "zod": "^4.6.7"
+  },
+  "bin": {
+    "code-crew": "bin/code-crew.js"
+  },
+  "files": [
+    "bin",
+    "templates",
+    "public",
+    "server.js",
+    "config.js",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicope/code-crew"
+  }
+}

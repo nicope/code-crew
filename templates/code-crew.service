@@ -1,0 +1,14 @@
+[Unit]
+Description=Code Crew (Bots on your Claude Code subscription)
+After=network-online.target
+
+[Service]
+ExecStart={{NODE}} {{SCRIPT}} start
+Restart=always
+RestartSec=3
+Environment=PATH={{PATH}}
+Environment=HOME={{HOME}}
+WorkingDirectory={{HOME}}
+
+[Install]
+WantedBy=default.target

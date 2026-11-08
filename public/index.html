@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0c0c0e">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Code Crew">
+<title>Code Crew</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="side-top">
+      <div class="side-title">Bots</div>
+      <span class="status-dot" id="connDot" title="Connecting…"></span>
+      <button class="icon-btn" id="btnNewBot" title="New Bot (⌘N)" aria-label="New Bot">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="banner hidden" id="sideBanner"></div>
+    <div class="bot-list" id="botList"></div>
+    <div class="side-foot" id="sideFoot"><button class="link-btn" id="btnConnectors">Connectors</button><button class="link-btn" id="btnVault">Vault</button><button class="link-btn" id="btnNotify">Turn on notifications</button><span id="notifyHint"></span></div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="topbar">
+      <button class="icon-btn back" id="btnBack" aria-label="Back to Bots">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="bot-head" id="botHead">
+        <span class="avatar" id="headAvatar"></span>
+        <span class="bot-head-text"><span class="bot-name" id="headName">Pick a Bot</span><span class="bot-label" id="headLabel"></span></span>
+      </button>
+      <span class="head-state" id="headState"></span>
+      <button class="icon-btn" id="btnDetails" title="Bot details" aria-label="Bot details">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="3.5" cy="8" r="1.2" fill="currentColor"/><circle cx="12.5" cy="8" r="1.2" fill="currentColor"/></svg>
+      </button>
+    </header>
+    <div class="banner hidden" id="mainBanner"></div>
+
+    <div class="scroll" id="scroll">
+      <div class="thread" id="thread">
+        <div class="empty" id="emptyNoBot">
+          <h1>Your Bots</h1>
+          <p>Each Bot is a teammate with one job, its own conversation, and its own memory. Pick one on the left, or make a new one.</p>
+          <button class="pill" id="btnNewBot2">Create a Bot</button>
+        </div>
+        <div class="empty hidden" id="emptyNewBot">
+          <span class="avatar xl" id="emptyAvatar"></span>
+          <h1 id="emptyTitle">Meet your new Bot</h1>
+          <p>Give it one job in your first message. Say what it should do, where to look, and what needs your approval before it acts. Ask it to remember.</p>
+          <div class="starters" id="starters"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="jump hidden" id="jump" type="button">↓ Latest</button>
+
+    <div class="composer-wrap" id="composerWrap">
+      <div class="composer">
+        <div class="attach-list hidden" id="attachList"></div>
+        <div class="mention-pop hidden" id="mentionPop"></div>
+        <textarea id="input" rows="1" placeholder="Message… (@ to bring in another Bot)"></textarea>
+        <div class="composer-row">
+          <div class="actions-left">
+            <button class="icon-btn" id="btnAttach" title="Attach files" aria-label="Attach files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.5l-8.5 8.5a6 6 0 01-8.5-8.5l9-9a4 4 0 015.7 5.7l-9 9a2 2 0 01-2.8-2.8l8.3-8.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <input type="file" id="fileInput" multiple hidden>
+            <span class="busy-label" id="busyLabel"></span>
+          </div>
+          <div class="actions">
+            <button class="send" id="btnSend" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 14V4M9 4L4.5 8.5M9 4l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="stop hidden" id="btnStop" aria-label="Stop"><svg width="18" height="18" viewBox="0 0 18 18"><rect x="4.5" y="4.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- details drawer -->
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <div class="drawer-title">Bot details</div>
+      <button class="icon-btn" id="btnCloseDrawer" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="drawer-body">
+      <section>
+        <div class="avatar-row"><span class="avatar lg" id="dAvatar"></span>
+          <div class="shape-picker" id="dShapes"></div>
+        </div>
+        <div class="color-picker" id="dColors"></div>
+        <label>Name<input id="dName" maxlength="40"></label>
+        <label>Label<input id="dLabel" maxlength="60" placeholder="What it does, in a few words"></label>
+        <label>Folder it works in<input id="dCwd" spellcheck="false" autocomplete="off"></label>
+        <div class="chips" id="dDirChips"></div>
+        <div class="two">
+          <label>Model<select id="dModel"><option value="opus">Opus</option><option value="fable">Fable</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="">Claude Code default</option></select></label>
+          <label>Approvals<select id="dPerm"><option value="acceptEdits">Ask before running commands</option><option value="default">Ask before most actions</option><option value="plan">Plan only, never act</option><option value="bypassPermissions">Never ask</option></select></label>
+        </div>
+        <button class="pill primary" id="dSave">Save changes</button>
+      </section>
+      <section>
+        <div class="sec-title">Routines <span class="muted" id="routineCount"></span></div>
+        <div class="routines" id="routineList"></div>
+        <details class="add-routine" id="addRoutine">
+          <summary>Add a routine</summary>
+          <label>Name<input id="rName" maxlength="60" placeholder="Morning briefing"></label>
+          <label>What to do<textarea id="rPrompt" rows="3" placeholder="Check the inbox folder, summarize anything new, don't send anything."></textarea></label>
+          <div class="two">
+            <label>When<select id="rKind"><option value="daily">Every day at</option><option value="weekdays">Weekdays at</option><option value="hourly">Every hour</option><option value="interval">Every N minutes</option></select></label>
+            <label id="rTimeWrap">Time<input id="rTime" type="time" value="09:00"></label>
+            <label id="rMinWrap" class="hidden">Minutes<input id="rMinutes" type="number" min="5" value="60"></label>
+          </div>
+          <button class="pill primary" id="rAdd">Create routine</button>
+        </details>
+      </section>
+      <section>
+        <div class="sec-title">Connectors</div>
+        <div class="checks" id="dConnectors"></div>
+        <button class="link-btn" id="dManageConn">Manage connectors</button>
+      </section>
+      <section>
+        <div class="sec-title">Memory</div>
+        <pre class="memory" id="dMemory">Nothing saved yet.</pre>
+      </section>
+      <section class="danger-zone">
+        <button class="pill" id="dReset">Reset conversation</button>
+        <button class="pill danger" id="dDelete">Delete Bot</button>
+        <p class="muted small">Reset clears the chat history but keeps memory and routines. Delete removes the Bot, its routines and its memory.</p>
+      </section>
+    </div>
+  </aside>
+  <div class="scrim hidden" id="scrim"></div>
+
+  <!-- create dialog -->
+  <div class="drop-overlay hidden" id="dropOverlay"><div>Drop files to attach them</div></div>
+  <div id="authGate" class="hidden">
+    <div class="gate-card">
+      <div class="dialog-title">Access token needed</div>
+      <p class="muted">This page is protected. Paste the token from the link you were given (the part after <code>?token=</code>), or open that full link again.</p>
+      <input id="authInput" placeholder="token" autocomplete="off" spellcheck="false">
+      <div class="dialog-actions"><button class="pill primary" id="authBtn">Continue</button></div>
+    </div>
+  </div>
+  <dialog id="connDialog" class="wide">
+    <div class="dialog-head"><div class="dialog-title" style="margin:0">Connectors</div><button type="button" class="icon-btn" id="connClose" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button></div>
+    <p class="muted small">Connect a service once and every Bot can use it. Keys stay on this machine.</p>
+    <div id="connGrid"></div>
+    <form id="connForm" class="hidden"></form>
+  </dialog>
+  <dialog id="vaultDialog" class="wide">
+    <div class="dialog-head"><div class="dialog-title" style="margin:0">Vault</div><button type="button" class="icon-btn" id="vaultClose" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button></div>
+    <p class="muted small">Logins and secrets a Bot can ask for. Each request shows you a card to approve; nothing is handed over without you. Values never appear in this list.</p>
+    <div id="vaultList"></div>
+    <form id="vaultAddForm" class="vault-add"><div class="sec-title">Add a login or secret</div>
+      <div class="two"><label>Name<input name="name" maxlength="80" placeholder="Shopify admin password" required autocomplete="off"></label><label>Value<input name="value" type="password" required autocomplete="off"></label></div>
+      <label>Note <span class="muted">(what it is for)</span><input name="note" maxlength="120" placeholder="Admin login for the store" autocomplete="off"></label>
+      <div class="dialog-actions"><button type="submit" class="pill primary">Add to vault</button></div>
+    </form>
+    <div class="sec-title">1Password</div>
+    <p class="muted small" id="opStatus"></p>
+    <div class="two"><input id="opToken" type="password" placeholder="ops_… service account token" autocomplete="off" class="hidden"><button type="button" class="pill" id="opSave">Connect 1Password</button></div>
+  </dialog>
+  <dialog id="createDialog">
+    <form method="dialog" id="createForm">
+      <div class="dialog-title">Create New Bot</div>
+      <div class="avatar-row"><span class="avatar lg" id="cAvatar"></span><div class="shape-picker" id="cShapes"></div></div>
+      <div class="color-picker" id="cColors"></div>
+      <label>Name<input id="cName" maxlength="40" required placeholder="Research, Finances, Shop…" autofocus></label>
+      <label>Label <span class="muted">(optional)</span><input id="cLabel" maxlength="60" placeholder="Watches competitors and writes a weekly brief"></label>
+      <label>Approvals<select id="cPerm"><option value="bypassPermissions">Never ask, just do it</option><option value="acceptEdits">Ask before running commands</option><option value="default">Ask before most actions</option><option value="plan">Plan only, never act</option></select></label>
+      <div class="folder-note" id="cFolderHint"></div>
+      <details class="adv" id="cAdv"><summary>Work in an existing folder instead</summary>
+        <input id="cCwd" spellcheck="false" autocomplete="off" placeholder="/Users/you/project">
+        <div class="chips" id="cDirChips"></div>
+      </details>
+      <div class="dialog-actions"><button type="button" class="pill" id="cCancel">Cancel</button><button type="submit" class="pill primary">Create</button></div>
+    </form>
+  </dialog>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
