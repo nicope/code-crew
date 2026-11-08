@@ -25,20 +25,18 @@ Built for the phone as much as the desktop.
 
 ## Install
 
-Requirements: Node 20+, [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and logged in with
-your Claude subscription (`claude` once, then `/login`).
+Requirements: Node 20+, a Claude Pro or Max subscription, and [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+installed and logged in with it (`claude`, then choose "Claude account with subscription").
 
 ```bash
 git clone https://github.com/nicope/code-crew && cd code-crew
 npm install
-npm run setup        # Claude login check, access token, address (Tailscale detected), service install
+npm run setup
 ```
 
-Setup prints a link and a QR code. Open it on your phone, then Share → Add to Home Screen.
-
-Without the wizard: `npm start` serves `http://localhost:4747`. Config lives in `~/.code-crew/config.json`;
-every key can be overridden by an environment variable (`CODE_CREW_HOST`, `CODE_CREW_PORT`, `CODE_CREW_TOKEN`,
-`CODE_CREW_CWD`, `CODE_CREW_PERMISSION`, `CODE_CREW_MODEL`, `CODE_CREW_BOTS_DIR`, `CODE_CREW_DATA`).
+The wizard checks the Claude login, creates the access token, detects Tailscale, installs the always-on service,
+sets up https, and prints a link with a QR code for your phone. **[The full setup guide](docs/setup.md)** walks
+through Claude Code, Tailscale, the phone, services on macOS and Linux, Docker, and troubleshooting.
 
 ### Your subscription, your machine
 

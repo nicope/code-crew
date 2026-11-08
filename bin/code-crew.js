@@ -26,18 +26,36 @@ async function showLink(c = config) {
 }
 
 async function setup() {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = async (q, def = '') => { const a = (await rl.question(def ? `${q} [${def}] ` : `${q} `)).trim(); return a || def; };
+  // Answers are queued as they arrive so piped/scripted input works as well as a terminal.
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: !!process.stdin.isTTY });
+  const queue = []; let waiting = null, closed = false;
+  rl.on('line', (l) => { if (waiting) { const w = waiting; waiting = null; w(l); } else queue.push(l); });
+  rl.on('close', () => { closed = true; if (waiting) { const w = waiting; waiting = null; w(''); } });
+  const ask = async (q, def = '') => { process.stdout.write(def ? `${q} [${def}] ` : `${q} `); const a = (queue.length ? queue.shift() : closed ? '' : await new Promise((r) => (waiting = r))).trim(); if (!process.stdin.isTTY) process.stdout.write(a + '\n'); return a || def; };
   const yes = async (q, def = true) => /^y/i.test(await ask(`${q} ${def ? '(Y/n)' : '(y/N)'}`, def ? 'y' : 'n'));
   migrateLegacyData();
   const c = { ...readConfigFile() };
   say('\nCode Crew setup\n');
 
-  // 1. Claude Code
+  // 1. Claude Code, logged in with a subscription (not an API key)
   const claude = which('claude');
-  if (!claude) say('• Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code  (npm i -g @anthropic-ai/claude-code), then run `claude` once and log in with your Claude subscription.');
-  else say(`• Claude Code found: ${sh(claude, ['--version'])}`);
-  say('  Code Crew runs Bots on your own Claude subscription through Claude Code. One person, one subscription, one install.');
+  if (!claude) {
+    say('• Claude Code is not installed. Install it, then come back:');
+    say('    macOS / Linux:  curl -fsSL https://claude.ai/install.sh | bash      (or: npm install -g @anthropic-ai/claude-code)');
+    say('    then run `claude` once and choose "Claude account with subscription" when it asks how to log in.');
+    if (!(await yes('  Continue setup anyway?', false))) { rl.close(); return; }
+  } else {
+    say(`• Claude Code found: ${sh(claude, ['--version'])}`);
+    let st = null; try { st = JSON.parse(sh(claude, ['auth', 'status', '--json']) || 'null'); } catch {}
+    if (!st?.loggedIn) {
+      say('  Not logged in yet. Bots need your Claude subscription login (Pro or Max), not an API key.');
+      if (await yes('  Log in now? (opens a browser)', true)) { spawnSync(claude, ['auth', 'login'], { stdio: 'inherit' }); try { st = JSON.parse(sh(claude, ['auth', 'status', '--json']) || 'null'); } catch {} }
+    }
+    if (st?.loggedIn && st.authMethod && st.authMethod !== 'claude.ai') say(`  Warning: Claude Code is logged in via ${st.authMethod}, which bills an API account, not a subscription. Run \`claude auth login\` and pick your Claude account if you meant to use your plan.`);
+    else if (st?.loggedIn) say(`  Logged in with a Claude ${st.subscriptionType ? st.subscriptionType.toUpperCase() + ' ' : ''}subscription. Bots will use that plan's usage, not API credits.`);
+  }
+  if (process.env.ANTHROPIC_API_KEY) say('  Note: ANTHROPIC_API_KEY is set in this shell. Code Crew strips it so Bots never bill the API by accident.');
+  say('  One person, one subscription, one install: do not share one Code Crew with other people.');
 
   // 2. Long-lived token for running as a service
   const tokenFile = c.oauthTokenFile || path.join(DATA_DIR, 'oauth-token');
@@ -52,7 +70,15 @@ async function setup() {
 
   // 3. Access token and address
   c.token = c.token || randomBytes(8).toString('hex');
-  const tsIp = sh(which('tailscale'), ['ip', '-4']).split('\n')[0];
+  const ts = which('tailscale') || (fs.existsSync('/Applications/Tailscale.app/Contents/MacOS/Tailscale') ? '/Applications/Tailscale.app/Contents/MacOS/Tailscale' : '');
+  let tsIp = ts ? sh(ts, ['ip', '-4']).split('\n')[0] : '';
+  if (!ts) {
+    say('• Tailscale is not installed. It is the easiest way to reach Code Crew from your phone without opening ports:');
+    say('    computer: https://tailscale.com/download   (macOS: brew install --cask tailscale; Linux: curl -fsSL https://tailscale.com/install.sh | sh)');
+    say('    phone: the Tailscale app from the App Store / Play Store, signed into the same account.');
+    say('  You can finish setup on localhost now and re-run `code-crew setup` later to switch.');
+  } else if (!tsIp) { say('• Tailscale is installed but not connected. Run `tailscale up`, then re-run setup to use it.'); }
+  else say(`• Tailscale is connected (${tsIp}).`);
   const choices = ['Only this computer (localhost)', ...(tsIp ? [`Tailscale (${tsIp}) — reach it from your phone`] : []), 'All interfaces (0.0.0.0) — put a reverse proxy with https in front'];
   choices.forEach((x, i) => say(`  ${i + 1}. ${x}`));
   const pick = Number(await ask('• Where should it listen?', tsIp ? '2' : '1'));
@@ -70,7 +96,15 @@ async function setup() {
     if (await yes('• Install as an always-on service (starts at login, restarts itself)?', true)) await serviceInstall();
     else say(`  Start it any time with: ${path.basename(SCRIPT) === 'code-crew.js' ? 'code-crew start' : 'npm start'}`);
   }
-  if (tsIp && !isLoopback(c.host)) say(`\nFor https and phone notifications: tailscale serve --bg --https=443 http://${c.host}:${c.port}`);
+  // 6. https through Tailscale (needed for phone notifications; also hides the token from plain-http sniffing on the tailnet)
+  if (tsIp && !isLoopback(c.host)) {
+    say('\n• https: Tailscale can terminate https for you at https://<machine>.<tailnet>.ts.net. Requirements, in the Tailscale admin console under DNS: MagicDNS on and "HTTPS Certificates" enabled.');
+    if (await yes('  Set it up now with `tailscale serve`? (tailnet only; undo with `tailscale serve reset`)', true)) {
+      const r = spawnSync(ts, ['serve', '--bg', '--https=443', `http://${c.host}:${c.port}`], { stdio: 'inherit' });
+      if (r.status === 0) say('  Done. Use the https link printed above on your phone; then Share → Add to Home Screen, open it from there, and tap "Turn on notifications".');
+      else say('  tailscale serve did not succeed; the plain http link still works. Common cause: HTTPS Certificates not enabled in the admin console.');
+    } else say(`  Later: tailscale serve --bg --https=443 http://${c.host}:${c.port}`);
+  }
   rl.close();
   await showLink({ ...config, ...c });
 }
