@@ -30,7 +30,35 @@ function withMedia(t) {
   }).join('\n');
 }
 const PURIFY = { ADD_TAGS: ['video', 'audio', 'source', 'figure', 'figcaption'], ADD_ATTR: ['controls', 'playsinline', 'preload', 'poster', 'loading', 'target'] };
-const renderMd = (t, { media = true } = {}) => DOMPurify.sanitize(marked.parse(media ? withMedia(t || '') : (t || '')), PURIFY);
+const renderMd = (t, { media = true } = {}) => enhanceLinks(DOMPurify.sanitize(marked.parse(media ? withMedia(t || '') : (t || '')), PURIFY));
+// Links: "#123" and "owner/repo#123" become pull-request links (the Bot's own repo fills in the bare form), and every
+// external link gets the site's favicon in front so you can see where it goes before tapping.
+const PR_RE = /(^|[\s(\[,;])((?:[\w.-]+\/[\w.-]+)?#(\d{1,7}))(?=$|[\s)\].,;:!?])/g;
+function enhanceLinks(html) {
+  const box = document.createElement('template'); box.innerHTML = html;
+  const repo = currentBot()?.repo;
+  const walker = document.createTreeWalker(box.content, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.parentElement?.closest('a, code, pre, .media') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
+  for (const node of texts) {
+    if (!PR_RE.test(node.nodeValue)) continue; PR_RE.lastIndex = 0;
+    const frag = document.createDocumentFragment(); let last = 0, m;
+    while ((m = PR_RE.exec(node.nodeValue))) {
+      const [full, pre, ref, num] = m; const r = ref.includes('/') ? ref.slice(0, ref.indexOf('#')) : repo; if (!r) continue;
+      frag.appendChild(document.createTextNode(node.nodeValue.slice(last, m.index) + pre));
+      const a = document.createElement('a'); a.href = `https://github.com/${r}/pull/${num}`; a.textContent = ref; a.title = `${r} pull request #${num}`; frag.appendChild(a);
+      last = m.index + full.length;
+    }
+    frag.appendChild(document.createTextNode(node.nodeValue.slice(last))); node.replaceWith(frag);
+  }
+  for (const a of box.content.querySelectorAll('a[href^="http"]')) {
+    let host; try { host = new URL(a.href).host; } catch { continue; }
+    if (host === location.host || a.querySelector('img, video, figure')) continue;
+    a.target = '_blank'; a.rel = 'noopener'; a.classList.add('ext');
+    const ico = document.createElement('img'); ico.className = 'favicon'; ico.alt = ''; ico.loading = 'lazy'; ico.src = `https://${host}/favicon.ico`; ico.onerror = () => ico.replaceWith(Object.assign(document.createElement('span'), { className: 'favicon glyph', textContent: '↗' }));
+    a.prepend(ico);
+  }
+  return box.innerHTML;
+}
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtDur = (ms) => ms < 1000 ? `${Math.round(ms)}ms` : ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 const fmtAgo = (ts) => { if (!ts) return ''; const d = Date.now() - ts; if (d < 60e3) return 'now'; if (d < 3600e3) return `${Math.floor(d / 60e3)}m`; if (d < 86400e3) return `${Math.floor(d / 3600e3)}h`; return `${Math.floor(d / 86400e3)}d`; };

@@ -145,6 +145,7 @@ details.adv { margin-top: 6px; } details.adv summary { cursor: pointer; font-siz
 .md table { border-collapse: collapse; margin: 0 0 14px; font-size: 14px; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
 .md a { color: var(--accent); } .md img { max-width: 100%; }
+.md a .favicon, .bubble a .favicon { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; border-radius: 3px; display: inline-block; } .favicon.glyph { width: auto; font-size: 11px; color: var(--muted); margin-right: 3px; }
 .cursor::after { content: ""; display: inline-block; width: 7px; height: 15px; background: var(--text); margin-left: 2px; vertical-align: -2px; animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 pre.plain { font-family: var(--mono); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }

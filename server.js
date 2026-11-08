@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { config, DATA_DIR, HOME, isLoopback, writeConfigFile, migrateLegacyData } from './config.js';
 migrateLegacyData();
 import { WebSocketServer } from 'ws';
@@ -178,9 +178,17 @@ for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flush(); proces
 const botById = (id) => store.bots.find((b) => b.id === id);
 const botByName = (name) => store.bots.find((b) => b.name.toLowerCase() === String(name).toLowerCase());
 
+// GitHub repo behind a Bot's folder (origin remote), so "#123" in its replies can link to the pull request. Cached per folder.
+const repoCache = new Map();
+function repoFor(cwd) {
+  const hit = repoCache.get(cwd); if (hit && hit.at > Date.now() - 60000) return hit.repo;
+  let repo = null;
+  try { const url = execFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).trim(); const m = url.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/); if (m) repo = m[1]; } catch {}
+  repoCache.set(cwd, { repo, at: Date.now() }); return repo;
+}
 function publicBot(b) {
   const rt = runtimes.get(b.id);
-  return { ...b, busy: !!rt?.busy, pendingApprovals: rt ? rt.pending.size : 0, routines: store.routines.filter((r) => r.botId === b.id).length };
+  return { ...b, repo: repoFor(b.cwd), busy: !!rt?.busy, pendingApprovals: rt ? rt.pending.size : 0, routines: store.routines.filter((r) => r.botId === b.id).length };
 }
 
 if (store.bots.length === 0) {
