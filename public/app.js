@@ -42,7 +42,7 @@ const api = async (path, opts = {}) => { const r = await fetch(path, { ...opts, 
 function showAuthGate() { els.authGate.classList.remove('hidden'); els.authInput.focus(); }
 const shortPath = (p) => (state.home && p.startsWith(state.home)) ? '~' + p.slice(state.home.length) : p;
 function renderChips(container, input) { container.innerHTML = state.dirs.map((d) => `<button type="button" class="chip" data-dir="${esc(d)}">${esc(shortPath(d))}</button>`).join(''); container.onclick = (e) => { const b = e.target.closest('.chip'); if (b) input.value = b.dataset.dir; }; }
-async function loadDirs() { const d = await api('/api/dirs'); state.dirs = d.dirs; state.defaultDir = d.default; state.botsDir = d.botsDir; state.home = d.home; }
+async function loadDirs() { const d = await api('/api/dirs'); state.dirs = d.dirs; state.defaultDir = d.default; state.botsDir = d.botsDir; state.home = d.home; state.defaultPermission = d.defaultPermission || 'acceptEdits'; }
 
 // ---- avatars ----
 const SHAPES = {
@@ -54,7 +54,7 @@ const SHAPES = {
   blob: '<path d="M50 8c22 0 42 14 42 38s-12 46-40 46S8 74 8 48 28 8 50 8z"/>',
 };
 const COLORS = ['#6fb3ff', '#7fd49a', '#f0b64a', '#ff8a7a', '#c58cff', '#5ad0d0', '#f2a1c6', '#b9c2cc'];
-const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="${color}">${SHAPES[shape] || SHAPES.circle}</g>${initial ? `<text x="50" y="50" dy=".36em" text-anchor="middle" font-size="42" font-weight="600" font-family="-apple-system,Helvetica,Arial" fill="rgba(0,0,0,.72)">${esc(initial[0].toUpperCase())}</text>` : ''}</svg>`;
+const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="${esc(color)}">${SHAPES[shape] || SHAPES.circle}</g>${initial ? `<text x="50" y="50" dy=".36em" text-anchor="middle" font-size="42" font-weight="600" font-family="-apple-system,Helvetica,Arial" fill="rgba(0,0,0,.72)">${esc(initial[0].toUpperCase())}</text>` : ''}</svg>`;
 const setAvatar = (el, bot) => { el.innerHTML = avatarSvg(bot.shape, bot.color, bot.name); };
 
 // ---- state ----
@@ -432,7 +432,7 @@ function pickers(shapesEl, colorsEl, avatarEl, pick, nameEl) {
   nameEl.oninput = refresh; refresh();
 }
 function folderHint() { const n = els.cName.value.trim() || 'Name'; els.cFolderHint.textContent = els.cAdv.open ? 'Pick a folder below, or type a path.' : `Gets its own folder: ${shortPath(state.botsDir || '~/Bots')}/${n}`; }
-function openCreate() { cPick = { shape: Object.keys(SHAPES)[state.bots.length % 6], color: COLORS[state.bots.length % COLORS.length] }; els.cName.value = ''; els.cLabel.value = ''; els.cCwd.value = ''; els.cAdv.open = false; els.cPerm.value = 'bypassPermissions'; renderChips(els.cDirChips, els.cCwd); folderHint(); pickers(els.cShapes, els.cColors, els.cAvatar, cPick, els.cName); els.createDialog.showModal(); els.cName.focus(); }
+function openCreate() { cPick = { shape: Object.keys(SHAPES)[state.bots.length % 6], color: COLORS[state.bots.length % COLORS.length] }; els.cName.value = ''; els.cLabel.value = ''; els.cCwd.value = ''; els.cAdv.open = false; els.cPerm.value = state.defaultPermission || 'acceptEdits'; renderChips(els.cDirChips, els.cCwd); folderHint(); pickers(els.cShapes, els.cColors, els.cAvatar, cPick, els.cName); els.createDialog.showModal(); els.cName.focus(); }
 els.cName.addEventListener('input', folderHint); els.cAdv.addEventListener('toggle', folderHint);
 els.createForm.onsubmit = async (e) => {
   e.preventDefault();

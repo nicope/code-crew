@@ -7,6 +7,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY . .
 ENV CODE_CREW_HOST=0.0.0.0 CODE_CREW_PORT=4747 CODE_CREW_DATA=/data CODE_CREW_BOTS_DIR=/data/bots CODE_CREW_CWD=/data/bots
+RUN mkdir -p /data && chown -R node:node /data /app
+USER node
+ENV HOME=/data
 VOLUME ["/data"]
 EXPOSE 4747
 # CODE_CREW_TOKEN (access token for the UI) and CLAUDE_CODE_OAUTH_TOKEN are required at runtime.

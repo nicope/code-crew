@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { config, DATA_DIR, HOME, isLoopback, writeConfigFile, migrateLegacyData } from './config.js';
 migrateLegacyData();
@@ -14,7 +14,7 @@ import { query, getSessionMessages, createSdkMcpServer, tool } from '@anthropic-
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
-const PORT = config.port, HOST = config.host, TOKEN = config.token;
+const PORT = config.port, HOST = config.host;
 const DEFAULT_CWD = config.defaultCwd, DEFAULT_PERMISSION = config.defaultPermission, DEFAULT_MODEL = config.defaultModel, BOTS_DIR = config.botsDir;
 const MEMORY_DIR = path.join(DATA_DIR, 'memory');
 const STORE = path.join(DATA_DIR, 'store.json');
@@ -23,10 +23,8 @@ const IDLE_SHUTDOWN_MS = 15 * 60 * 1000;
 const APPROVAL_EXPIRY_MS = 30 * 60 * 1000;
 const DIR_ROOTS = config.dirRoots;
 
-if (!isLoopback(HOST) && !TOKEN) {
-  console.error('Refusing to listen on a non-loopback address without an access token. Run `code-crew setup` or set CODE_CREW_TOKEN.');
-  process.exit(1);
-}
+let TOKEN = config.token;
+if (!TOKEN) { TOKEN = randomBytes(8).toString('hex'); writeConfigFile({ token: TOKEN }); console.error('Generated an access token and saved it to the config file. Run `code-crew link` to see the link.'); }
 fs.mkdirSync(MEMORY_DIR, { recursive: true });
 // Headless auth: a long-lived subscription token from `claude setup-token`, saved to ~/.code-crew/oauth-token.
 // Needed when the server runs under launchd/systemd, which cannot read the macOS Keychain where `claude login` stores credentials.
@@ -67,20 +65,20 @@ let connectors = {}; try { connectors = JSON.parse(fs.readFileSync(CONNECTORS_FI
 const saveConnectors = () => fs.writeFileSync(CONNECTORS_FILE, JSON.stringify(connectors, null, 2), { mode: 0o600 });
 // kind: 'stdio' (official MCP package run locally), 'http' (remote MCP with a header), 'rest' (a request tool over the service's REST API, for services whose MCP is login-only)
 const CATALOG = [
-  { id: 'github', name: 'GitHub', color: '#24292f', tagline: 'Repos, issues, pull requests, Actions', kind: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer {token}' }, fields: [{ key: 'token', label: 'Personal access token', secret: true, help: 'https://github.com/settings/tokens' }], test: { url: 'https://api.github.com/user', headers: { Authorization: 'Bearer {token}', 'User-Agent': 'claude-chat' } } },
-  { id: 'supabase', name: 'Supabase', color: '#3ecf8e', tagline: 'Projects, SQL, tables, logs, edge functions', kind: 'stdio', command: 'npx', args: ['-y', '@supabase/mcp-server-supabase@latest'], env: { SUPABASE_ACCESS_TOKEN: '{token}' }, fields: [{ key: 'token', label: 'Personal access token', secret: true, help: 'https://supabase.com/dashboard/account/tokens' }], test: { url: 'https://api.supabase.com/v1/projects', headers: { Authorization: 'Bearer {token}' } } },
+  { id: 'github', name: 'GitHub', color: '#24292f', tagline: 'Repos, issues, pull requests, Actions', kind: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer {token}' }, fields: [{ key: 'token', label: 'Personal access token', secret: true, help: 'https://github.com/settings/tokens' }], test: { url: 'https://api.github.com/user', headers: { Authorization: 'Bearer {token}', 'User-Agent': 'code-crew' } } },
+  { id: 'supabase', name: 'Supabase', color: '#3ecf8e', tagline: 'Projects, SQL, tables, logs, edge functions', kind: 'stdio', command: 'npx', args: ['-y', '@supabase/mcp-server-supabase@0.16.1'], env: { SUPABASE_ACCESS_TOKEN: '{token}' }, fields: [{ key: 'token', label: 'Personal access token', secret: true, help: 'https://supabase.com/dashboard/account/tokens' }], test: { url: 'https://api.supabase.com/v1/projects', headers: { Authorization: 'Bearer {token}' } } },
   { id: 'vercel', name: 'Vercel', color: '#171717', tagline: 'Deployments, projects, domains, env vars', kind: 'rest', base: 'https://api.vercel.com', headers: { Authorization: 'Bearer {token}' }, docs: 'https://vercel.com/docs/rest-api', fields: [{ key: 'token', label: 'API token', secret: true, help: 'https://vercel.com/account/tokens' }], test: { path: '/v2/user' } },
   { id: 'cloudflare', name: 'Cloudflare', color: '#f6821f', tagline: 'DNS, Workers, Pages, KV, R2, D1', kind: 'rest', base: 'https://api.cloudflare.com/client/v4', headers: { Authorization: 'Bearer {token}' }, docs: 'https://developers.cloudflare.com/api/', fields: [{ key: 'token', label: 'API token', secret: true, help: 'https://dash.cloudflare.com/profile/api-tokens' }], test: { path: '/user/tokens/verify' } },
-  { id: 'stripe', name: 'Stripe', color: '#635bff', tagline: 'Customers, payments, subscriptions, invoices', kind: 'stdio', command: 'npx', args: ['-y', '@stripe/mcp', '--tools=all', '--api-key={token}'], fields: [{ key: 'token', label: 'Secret key (sk_live_… or sk_test_…)', secret: true, help: 'https://dashboard.stripe.com/apikeys' }], test: { url: 'https://api.stripe.com/v1/balance', headers: { Authorization: 'Bearer {token}' } } },
-  { id: 'notion', name: 'Notion', color: '#2f2f2f', tagline: 'Pages and databases', kind: 'stdio', command: 'npx', args: ['-y', '@notionhq/notion-mcp-server'], env: { OPENAPI_MCP_HEADERS: '{"Authorization":"Bearer {token}","Notion-Version":"2022-06-28"}' }, fields: [{ key: 'token', label: 'Internal integration secret', secret: true, help: 'https://www.notion.so/profile/integrations' }], test: { url: 'https://api.notion.com/v1/users/me', headers: { Authorization: 'Bearer {token}', 'Notion-Version': '2022-06-28' } } },
+  { id: 'stripe', name: 'Stripe', color: '#635bff', tagline: 'Customers, payments, subscriptions, invoices', kind: 'stdio', command: 'npx', args: ['-y', '@stripe/mcp@0.3.4', '--tools=all'], env: { STRIPE_SECRET_KEY: '{token}' }, fields: [{ key: 'token', label: 'Secret key (sk_live_… or sk_test_…)', secret: true, help: 'https://dashboard.stripe.com/apikeys' }], test: { url: 'https://api.stripe.com/v1/balance', headers: { Authorization: 'Bearer {token}' } } },
+  { id: 'notion', name: 'Notion', color: '#2f2f2f', tagline: 'Pages and databases', kind: 'stdio', command: 'npx', args: ['-y', '@notionhq/notion-mcp-server@2.6.1'], env: { OPENAPI_MCP_HEADERS: '{"Authorization":"Bearer {token}","Notion-Version":"2022-06-28"}' }, fields: [{ key: 'token', label: 'Internal integration secret', secret: true, help: 'https://www.notion.so/profile/integrations' }], test: { url: 'https://api.notion.com/v1/users/me', headers: { Authorization: 'Bearer {token}', 'Notion-Version': '2022-06-28' } } },
   { id: 'linear', name: 'Linear', color: '#5e6ad2', tagline: 'Issues, projects, cycles', kind: 'rest', base: 'https://api.linear.app', headers: { Authorization: '{token}' }, docs: 'https://developers.linear.app/docs/graphql/working-with-the-graphql-api', note: 'GraphQL only: POST /graphql with body {"query": "..."}.', fields: [{ key: 'token', label: 'Personal API key', secret: true, help: 'https://linear.app/settings/account/security' }], test: { path: '/graphql', method: 'POST', body: { query: '{ viewer { id } }' } } },
   { id: 'slack', name: 'Slack', color: '#4a154b', tagline: 'Read and post messages, channels, users', kind: 'rest', base: 'https://slack.com/api', headers: { Authorization: 'Bearer {token}' }, docs: 'https://api.slack.com/methods', fields: [{ key: 'token', label: 'Bot token (xoxb-…)', secret: true, help: 'https://api.slack.com/apps' }], test: { path: '/auth.test', method: 'POST' } },
   { id: 'klaviyo', name: 'Klaviyo', color: '#1f1f1f', tagline: 'Profiles, lists, campaigns, flows, metrics', kind: 'rest', base: 'https://a.klaviyo.com/api', headers: { Authorization: 'Klaviyo-API-Key {token}', revision: '2024-10-15' }, docs: 'https://developers.klaviyo.com/en/reference/api_overview', fields: [{ key: 'token', label: 'Private API key (pk_…)', secret: true, help: 'https://www.klaviyo.com/settings/account/api-keys' }], test: { path: '/accounts' } },
   { id: 'shopify', name: 'Shopify', color: '#5e8e3e', tagline: 'Products, orders, customers (Admin API)', kind: 'rest', base: 'https://{store}.myshopify.com/admin/api/2025-01', headers: { 'X-Shopify-Access-Token': '{token}' }, docs: 'https://shopify.dev/docs/api/admin-rest', fields: [{ key: 'store', label: 'Store subdomain (before .myshopify.com)' }, { key: 'token', label: 'Admin API access token (shpat_…)', secret: true, help: 'https://help.shopify.com/en/manual/apps/app-types/custom-apps' }], test: { path: '/shop.json' } },
   { id: 'resend', name: 'Resend', color: '#111111', tagline: 'Send email, manage domains and audiences', kind: 'rest', base: 'https://api.resend.com', headers: { Authorization: 'Bearer {token}' }, docs: 'https://resend.com/docs/api-reference', fields: [{ key: 'token', label: 'API key (re_…)', secret: true, help: 'https://resend.com/api-keys' }], test: { path: '/domains' } },
-  { id: 'firecrawl', name: 'Firecrawl', color: '#ff5a1f', tagline: 'Scrape and crawl websites into clean text', kind: 'stdio', command: 'npx', args: ['-y', 'firecrawl-mcp'], env: { FIRECRAWL_API_KEY: '{token}' }, fields: [{ key: 'token', label: 'API key (fc-…)', secret: true, help: 'https://www.firecrawl.dev/app/api-keys' }] },
-  { id: 'context7', name: 'Context7', color: '#6b57ff', tagline: 'Up-to-date documentation for any library', kind: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], fields: [] },
-  { id: 'playwright', name: 'Browser', color: '#2ead33', tagline: 'A headless browser: open pages, click, fill forms, screenshots', kind: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest', '--headless'], fields: [] },
+  { id: 'firecrawl', name: 'Firecrawl', color: '#ff5a1f', tagline: 'Scrape and crawl websites into clean text', kind: 'stdio', command: 'npx', args: ['-y', 'firecrawl-mcp@3.38.0'], env: { FIRECRAWL_API_KEY: '{token}' }, fields: [{ key: 'token', label: 'API key (fc-…)', secret: true, help: 'https://www.firecrawl.dev/app/api-keys' }] },
+  { id: 'context7', name: 'Context7', color: '#6b57ff', tagline: 'Up-to-date documentation for any library', kind: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp@4.5.1'], fields: [] },
+  { id: 'playwright', name: 'Browser', color: '#2ead33', tagline: 'A headless browser: open pages, click, fill forms, screenshots', kind: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@0.0.84', '--headless'], fields: [] },
 ];
 const fill = (s, f) => String(s).replace(/\{(\w+)\}/g, (_, k) => f[k] ?? '');
 const fillObj = (o, f) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, fill(v, f)]));
@@ -265,6 +263,7 @@ class BotRuntime {
       mcpServers: { bots: botsMcpServer(bot), vault: vaultMcpServer(this), ...connectorServers(bot).servers },
       allowedTools: ['mcp__bots__message_bot', 'mcp__bots__list_bots', 'mcp__vault', ...connectorServers(bot).allowed],
       canUseTool: (toolName, input, { suggestions, signal }) => this.askPermission(toolName, input, suggestions, signal),
+      hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob|Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [protectSecretsHook] }] },
     };
     opts.allowDangerouslySkipPermissions = true; // needed so a Bot can be switched to "Never ask" while running
     if (bot.sessionId) opts.resume = bot.sessionId;
@@ -360,6 +359,15 @@ async function backfillPreviews() {
 setTimeout(() => backfillPreviews().catch(() => {}), 500);
 // "@Name" in a message brings that Bot in; longest names first so "@GF Videos" beats "@GF".
 const mentionsIn = (text, self) => store.bots.filter((b) => b.id !== self.id).sort((a, b) => b.name.length - a.name.length).filter((b) => new RegExp(`(^|[^\\w])@${b.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`, 'i').test(text));
+// Bots run as the same OS user as this server, so file permissions alone cannot keep them out of Code Crew's own
+// secrets (vault, connector keys, access token, login token). This hook denies tool calls that touch them.
+const SECRET_MARKERS = [DATA_DIR, path.join(HOME, '.claude-chat'), '.code-crew', 'CLAUDE_CODE_OAUTH_TOKEN', 'OP_SERVICE_ACCOUNT_TOKEN', '.credentials.json'];
+async function protectSecretsHook(input) {
+  const text = JSON.stringify(input.tool_input || {});
+  const hit = SECRET_MARKERS.find((mk) => text.includes(mk)) || (input.tool_name === 'Bash' && /(^|[\s;&|])(env|printenv|set)(\s|$|;)/.test(input.tool_input?.command || '') ? 'environment dump' : null);
+  if (!hit) return {};
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Blocked by Code Crew: this touches its own secrets (${hit}). Use the vault_get / connector tools instead.` } };
+}
 const getRuntime = (id) => { let rt = runtimes.get(id); if (!rt) { const bot = botById(id); if (!bot) throw new Error('No such bot'); rt = new BotRuntime(bot); runtimes.set(id, rt); } return rt; };
 
 // ---------------------------------------------------------------- routines
@@ -389,10 +397,13 @@ const readRaw = (req) => new Promise((resolve, reject) => { const chunks = []; l
 const safeName = (s) => String(s || 'file').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file';
 const readBody = (req) => new Promise((resolve) => { let s = ''; req.on('data', (c) => (s += c)); req.on('end', () => { try { resolve(JSON.parse(s || '{}')); } catch { resolve({}); } }); });
 const safeEq = (a, b) => { a = Buffer.from(String(a || '')); b = Buffer.from(String(b || '')); return a.length === b.length && a.length > 0 && timingSafeEqual(a, b); };
-const failures = new Map(); // ip → { n, until }
+// Browsers send Origin on WebSocket upgrades and cross-origin requests; a page from another origin (another localhost port, a random site via DNS rebinding) must not drive this server.
+const sameOrigin = (req) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
+const clientKey = (req) => { const peer = req.socket?.remoteAddress || '?'; const fwd = req.headers['x-forwarded-for']; return (fwd && /^(::1|127\.|::ffff:127\.|100\.)/.test(peer)) ? String(fwd).split(',')[0].trim() : peer; };
+const failures = new Map(); // client → { n, until }
 function authorized(url, req) {
   if (!TOKEN) return true;
-  const ip = req.socket?.remoteAddress || '?'; const f = failures.get(ip);
+  const ip = clientKey(req); const f = failures.get(ip);
   if (f && f.until > Date.now()) return false;
   const cookieTok = (req.headers.cookie || '').match(/(?:^|;\s*)cc_token=([^;]+)/)?.[1];
   const ok = safeEq(url.searchParams.get('token'), TOKEN) || safeEq(req.headers['x-cc-token'], TOKEN) || safeEq(cookieTok, TOKEN);
@@ -416,15 +427,20 @@ function listDirs() {
   return [...out].filter(Boolean).sort();
 }
 const clean = (s, n = 80) => String(s ?? '').trim().slice(0, n);
+const PERMISSION_MODES = ['acceptEdits', 'default', 'plan', 'bypassPermissions'];
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
   try {
     if (p.startsWith('/api/') && !authorized(url, req)) return json(res, 401, { error: 'unauthorized' });
+    if (p.startsWith('/api/') && req.method !== 'GET' && req.method !== 'HEAD') {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin request refused' });
+      const ct = String(req.headers['content-type'] || ''); if (!/^(application\/json|application\/octet-stream)/.test(ct)) return json(res, 415, { error: 'send JSON (content-type: application/json)' });
+    }
     if (TOKEN && p === '/' && url.searchParams.get('token') === TOKEN) res.setHeader('set-cookie', `cc_token=${TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
 
-    if (p === '/api/dirs') return json(res, 200, { dirs: listDirs(), default: DEFAULT_CWD, botsDir: BOTS_DIR, home: HOME });
+    if (p === '/api/dirs') return json(res, 200, { dirs: listDirs(), default: DEFAULT_CWD, botsDir: BOTS_DIR, home: HOME, defaultPermission: DEFAULT_PERMISSION, defaultModel: DEFAULT_MODEL });
     let m;
     if (p === '/api/connectors' && req.method === 'GET') return json(res, 200, { connectors: publicConnectors() });
     if ((m = p.match(/^\/api\/connectors\/([a-z0-9-]+)$/))) {
@@ -446,6 +462,7 @@ const server = http.createServer(async (req, res) => {
         const cat = CATALOG.find((c) => c.id === id); if (!cat) return json(res, 404, { error: 'unknown connector' });
         const fields = {}; for (const f of cat.fields) { const v = clean(b.fields?.[f.key], 2000); if (v && !(f.secret && v.startsWith('••••'))) fields[f.key] = v; else if (f.secret && v.startsWith('••••') && connectors[id]?.fields?.[f.key]) fields[f.key] = connectors[id].fields[f.key]; }
         const missing = cat.fields.filter((f) => !fields[f.key]); if (missing.length) return json(res, 400, { error: `Missing: ${missing.map((f) => f.label).join(', ')}` });
+        if (fields.store !== undefined && !/^[a-z0-9-]+$/i.test(fields.store)) return json(res, 400, { error: 'Store must be the subdomain only, letters, digits and dashes' });
         try { await testConnector(cat, fields); } catch (e) { return json(res, 400, { error: e.message }); }
         connectors[id] = { fields, connectedAt: Date.now() }; saveConnectors(); applyConnectors();
         return json(res, 200, { ok: true });
@@ -470,7 +487,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/bots' && req.method === 'GET') return json(res, 200, { bots: store.bots.map(publicBot) });
     if (p === '/api/bots' && req.method === 'POST') {
       const b = await readBody(req);
-      const bot = { id: randomUUID(), name: clean(b.name, 40) || 'New Bot', label: clean(b.label, 60), shape: clean(b.shape, 20) || 'circle', color: /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#6fb3ff', cwd: clean(b.cwd, 400), model: clean(b.model, 40) || DEFAULT_MODEL, permissionMode: clean(b.permissionMode, 30) || DEFAULT_PERMISSION, sessionId: null, createdAt: Date.now(), lastActivity: Date.now(), unread: false };
+      const bot = { id: randomUUID(), name: clean(b.name, 40) || 'New Bot', label: clean(b.label, 60), shape: clean(b.shape, 20) || 'circle', color: /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#6fb3ff', cwd: clean(b.cwd, 400), model: clean(b.model, 40) || DEFAULT_MODEL, permissionMode: PERMISSION_MODES.includes(b.permissionMode) ? b.permissionMode : DEFAULT_PERMISSION, sessionId: null, createdAt: Date.now(), lastActivity: Date.now(), unread: false };
       if (bot.cwd && !fs.existsSync(bot.cwd)) return json(res, 400, { error: `Folder not found: ${bot.cwd}` });
       if (!bot.cwd) bot.cwd = newBotDir(bot.name);
       store.bots.push(bot); save(); broadcastBots();
@@ -487,7 +504,8 @@ const server = http.createServer(async (req, res) => {
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
       let start = 0, end = st.size - 1, status = 200;
       if (range && st.size) { start = range[1] ? Number(range[1]) : Math.max(0, st.size - Number(range[2])); end = range[1] && range[2] ? Math.min(Number(range[2]), st.size - 1) : end; if (start > end || start >= st.size) { res.writeHead(416, { 'content-range': `bytes */${st.size}` }); return res.end(); } status = 206; }
-      res.writeHead(status, { 'content-type': type, 'content-length': end - start + 1, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600', ...(status === 206 ? { 'content-range': `bytes ${start}-${end}/${st.size}` } : {}) });
+      const inline = /^(image\/(png|jpeg|gif|webp)|video\/|audio\/)/.test(type); // SVG, PDF, text and unknown types download instead of rendering in the app's origin
+      res.writeHead(status, { 'content-type': type, 'content-length': end - start + 1, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'", ...(inline ? {} : { 'content-disposition': `attachment; filename="${path.basename(real).replace(/[^\w. -]/g, '_')}"` }), ...(status === 206 ? { 'content-range': `bytes ${start}-${end}/${st.size}` } : {}) });
       if (req.method === 'HEAD') return res.end();
       fs.createReadStream(real, { start, end }).pipe(res); return;
     }
@@ -507,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'PATCH') {
         const b = await readBody(req); let restart = false;
         if (Array.isArray(b.connectorsOff)) { bot.connectorsOff = b.connectorsOff.map((x) => clean(x, 60)).filter(Boolean); restart = true; }
-        for (const k of ['name', 'label', 'shape', 'color', 'cwd', 'model', 'permissionMode']) if (b[k] !== undefined) { const v = clean(b[k], k === 'cwd' ? 400 : 60); if (k === 'cwd' && !fs.existsSync(v)) return json(res, 400, { error: `Folder not found: ${v}` }); if (['cwd', 'model', 'permissionMode', 'name', 'label'].includes(k) && bot[k] !== v) restart = true; bot[k] = v; }
+        for (const k of ['name', 'label', 'shape', 'color', 'cwd', 'model', 'permissionMode']) if (b[k] !== undefined) { const v = clean(b[k], k === 'cwd' ? 400 : 60); if (k === 'cwd' && !fs.existsSync(v)) return json(res, 400, { error: `Folder not found: ${v}` }); if (k === 'color' && !/^#[0-9a-f]{6}$/i.test(v)) return json(res, 400, { error: 'color must be #rrggbb' }); if (k === 'permissionMode' && !PERMISSION_MODES.includes(v)) return json(res, 400, { error: 'unknown approval level' }); if (['cwd', 'model', 'permissionMode', 'name', 'label'].includes(k) && bot[k] !== v) restart = true; bot[k] = v; }
         if (b.primary) { for (const o of store.bots) o.primary = false; bot.primary = true; }
         save(); broadcastBots();
         const rt = runtimes.get(bot.id);
@@ -562,7 +580,7 @@ const server = http.createServer(async (req, res) => {
 // ---------------------------------------------------------------- websocket
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws, req) => {
-  if (!authorized(new URL(req.url, 'http://x'), req)) { ws.close(4001, 'unauthorized'); return; }
+  if (!sameOrigin(req) || !authorized(new URL(req.url, 'http://x'), { ...req, headers: { ...req.headers, cookie: '' } })) { ws.close(4001, 'unauthorized'); return; }
   sockets.add(ws);
   let current = null; // runtime this socket is viewing
   const reply = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
@@ -600,4 +618,4 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => { sockets.delete(ws); current?.unsubscribe(ws); });
 });
 
-server.listen(PORT, HOST, () => console.log(`Code Crew ready → http://${HOST === '0.0.0.0' ? '<host>' : HOST}:${PORT}${TOKEN ? '/?token=' + TOKEN : ''}  data: ${DATA_DIR}  auth: ${authMode()}`));
+server.listen(PORT, HOST, () => console.log(`Code Crew ready → http://${HOST === '0.0.0.0' ? '<host>' : HOST}:${PORT}${process.stdout.isTTY ? '/?token=' + TOKEN : '  (token: run `code-crew link`)'}  data: ${DATA_DIR}  auth: ${authMode()}`));

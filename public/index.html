@@ -10,12 +10,12 @@
 <link rel="apple-touch-icon" href="/icon-180.png">
 <meta name="apple-mobile-web-app-title" content="Code Crew">
 <title>Code Crew</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" integrity="sha384-PiLidnnRuzFgp4qiN8oGNmktrV8ETL+6a8heAxljUX4A+3XWlocwaMn9duBUepfK" crossorigin="anonymous" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js" integrity="sha384-NNQgBjjuhtXzPmmy4gurS5X7P4uTt1DThyevz4Ua0IVK5+kazYQI1W27JHjbbxQz" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.6/purify.min.js" integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="app" id="app">
@@ -177,7 +177,7 @@
       <div class="color-picker" id="cColors"></div>
       <label>Name<input id="cName" maxlength="40" required placeholder="Research, Finances, Shop…" autofocus></label>
       <label>Label <span class="muted">(optional)</span><input id="cLabel" maxlength="60" placeholder="Watches competitors and writes a weekly brief"></label>
-      <label>Approvals<select id="cPerm"><option value="bypassPermissions">Never ask, just do it</option><option value="acceptEdits">Ask before running commands</option><option value="default">Ask before most actions</option><option value="plan">Plan only, never act</option></select></label>
+      <label>Approvals<select id="cPerm"><option value="acceptEdits">Ask before running commands</option><option value="bypassPermissions">Never ask, just do it</option><option value="default">Ask before most actions</option><option value="plan">Plan only, never act</option></select></label>
       <div class="folder-note" id="cFolderHint"></div>
       <details class="adv" id="cAdv"><summary>Work in an existing folder instead</summary>
         <input id="cCwd" spellcheck="false" autocomplete="off" placeholder="/Users/you/project">
