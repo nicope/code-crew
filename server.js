@@ -281,7 +281,7 @@ class BotRuntime {
       mcpServers: { bots: botsMcpServer(bot), vault: vaultMcpServer(this), ...connectorServers(bot).servers },
       allowedTools: ['mcp__bots__message_bot', 'mcp__bots__list_bots', 'mcp__vault', ...connectorServers(bot).allowed],
       canUseTool: (toolName, input, { suggestions, signal }) => this.askPermission(toolName, input, suggestions, signal),
-      hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob|Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [protectSecretsHook] }] },
+      hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob|Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [protectSecretsHookFor(bot)] }] },
     };
     opts.allowDangerouslySkipPermissions = true; // needed so a Bot can be switched to "Never ask" while running
     if (bot.sessionId) opts.resume = bot.sessionId;
@@ -417,11 +417,20 @@ const mentionsIn = (text, self) => store.bots.filter((b) => b.id !== self.id).so
 // Bots run as the same OS user as this server, so file permissions alone cannot keep them out of Code Crew's own
 // secrets (vault, connector keys, access token, login token). This hook denies tool calls that touch them.
 const SECRET_MARKERS = [DATA_DIR, path.join(HOME, '.claude-chat'), '.code-crew', 'CLAUDE_CODE_OAUTH_TOKEN', 'OP_SERVICE_ACCOUNT_TOKEN', '.credentials.json'];
-async function protectSecretsHook(input) {
-  const text = JSON.stringify(input.tool_input || {});
-  const hit = SECRET_MARKERS.find((mk) => text.includes(mk)) || (input.tool_name === 'Bash' && /(^|[\s;&|])(env|printenv|set)(\s|$|;)/.test(input.tool_input?.command || '') ? 'environment dump' : null);
-  if (!hit) return {};
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Blocked by Code Crew: this touches its own secrets (${hit}). Use the vault_get / connector tools instead.` } };
+// A Bot may read and write its own memory file (it lives in the data dir); every other path there stays blocked.
+const ownMemoryPaths = (bot) => [MEMORY_DIR, path.join(HOME, '.claude-chat', 'memory'), `~/${path.basename(DATA_DIR)}/memory`, '~/.claude-chat/memory'].map((d) => `${d}/${bot.id}.md`);
+const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function protectSecretsHookFor(bot) {
+  const own = new RegExp('(?:' + ownMemoryPaths(bot).map(escRe).join('|') + ')(?![\\w/.-])', 'g');
+  return async (input) => {
+    const text = JSON.stringify(input.tool_input || {}).replace(own, '<own-memory>');
+    const cmd = input.tool_name === 'Bash' ? String(input.tool_input?.command || '') : '';
+    // bare env / printenv / set / export / declare print every variable; with arguments they are ordinary commands
+    const dump = /(^|[;&|(`]\s*|\$\(\s*)(env|printenv|set|export|declare)\s*($|[;&|)`>])/m.test(cmd) || /(^|[;&|(`]\s*|\$\(\s*)printenv\b/m.test(cmd);
+    const hit = SECRET_MARKERS.find((mk) => text.includes(mk)) || (dump ? 'environment dump' : null);
+    if (!hit) return {};
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Blocked by Code Crew: this touches its own secrets (${hit}). Use the vault_get / connector tools instead.` } };
+  };
 }
 const getRuntime = (id) => { let rt = runtimes.get(id); if (!rt) { const bot = botById(id); if (!bot) throw new Error('No such bot'); rt = new BotRuntime(bot); runtimes.set(id, rt); } return rt; };
 
