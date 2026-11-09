@@ -252,3 +252,45 @@ dialog.wide { width: min(760px, 94vw); max-height: 88vh; overflow: auto; }
 .media figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-all; }
 .file-link { display: inline-block; padding: 6px 10px; border-radius: 9px; background: var(--raised); border: 1px solid var(--line); text-decoration: none; color: var(--text); margin: 4px 0; }
 .bubble .thumb .media { margin: 8px 0 0; } .bubble .thumb img, .bubble .thumb video { max-height: 240px; }
+
+/* copy: button on code blocks, tap-to-copy inline code */
+.md pre { position: relative; padding-right: 44px; }
+.copy-btn { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--muted); background: var(--raised-2); border: 1px solid var(--line); cursor: pointer; }
+.copy-btn:hover { color: var(--text); }
+.copy-btn.copied { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.md code.tap-copy { cursor: pointer; transition: background .2s, color .2s; }
+.md code.tap-copy.copied { background: color-mix(in srgb, var(--ok) 25%, transparent); color: var(--ok); }
+.md code.tap-copy.copied::after { content: ' ✓'; }
+
+/* voice notes */
+.rec-bar { display: none; align-items: center; gap: 10px; padding: 8px 8px 6px; }
+.composer-wrap.recording .rec-bar { display: flex; }
+.composer-wrap.recording textarea, .composer-wrap.recording #btnAttach, .composer-wrap.recording #btnMic { display: none; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+.rec-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rec-hint { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mic:disabled { opacity: .4; }
+
+/* swipe back (phones) */
+@media (max-width: 760px) {
+  .app.show-chat.swiping .sidebar { display: flex; position: fixed; inset: 0; z-index: 0; }
+  .app.show-chat.swiping .main { position: relative; z-index: 1; background: var(--bg); box-shadow: -8px 0 24px rgba(0,0,0,.25); }
+}
+
+/* send grows while writing */
+.send { transition: width .15s ease, height .15s ease, background .15s; }
+.composer-wrap.has-text .send, .composer-wrap.recording .send { width: 42px; height: 42px; background: var(--accent); color: #fff; }
+.composer-wrap.has-text .send svg, .composer-wrap.recording .send svg { width: 21px; height: 21px; }
+
+/* phones: taps act on the first touch (no double-tap zoom wait, no sticky hover) */
+button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+@media (hover: none) { .bot-row:hover { background: none; } .bot-row.active:hover { background: var(--raised-2); } .bot-row:active { background: var(--raised); } }
+
+/* / menu */
+.slash-pop { max-height: 300px; }
+.slash-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; touch-action: manipulation; }
+.slash-opt.sel, .slash-opt:hover { background: var(--raised); }
+.slash-name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; }
+.slash-hint { font-weight: 400; color: var(--muted); }
+.slash-desc { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.slash-empty { padding: 8px 10px; color: var(--muted); font-size: 13px; }

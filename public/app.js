@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -50,6 +50,8 @@ function enhanceLinks(html) {
     }
     frag.appendChild(document.createTextNode(node.nodeValue.slice(last))); node.replaceWith(frag);
   }
+  for (const pre of box.content.querySelectorAll('pre')) { const b = document.createElement('button'); b.type = 'button'; b.className = 'copy-btn'; b.setAttribute('aria-label', 'Copy'); b.innerHTML = COPY_ICON; pre.appendChild(b); }
+  for (const c of box.content.querySelectorAll('code')) if (!c.closest('pre, a')) { c.classList.add('tap-copy'); c.title = 'Tap to copy'; }
   for (const a of box.content.querySelectorAll('a[href^="http"]')) {
     let host; try { host = new URL(a.href).host; } catch { continue; }
     if (host === location.host || a.querySelector('img, video, figure')) continue;
@@ -59,6 +61,8 @@ function enhanceLinks(html) {
   }
   return box.innerHTML;
 }
+const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M15.5 8.5V6a2.5 2.5 0 00-2.5-2.5H6A2.5 2.5 0 003.5 6v7A2.5 2.5 0 006 15.5h2.5" stroke="currentColor" stroke-width="1.8"/></svg>';
+const CHECK_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtDur = (ms) => ms < 1000 ? `${Math.round(ms)}ms` : ms < 60000 ? `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 const fmtAgo = (ts) => { if (!ts) return ''; const d = Date.now() - ts; if (d < 60e3) return 'now'; if (d < 3600e3) return `${Math.floor(d / 60e3)}m`; if (d < 86400e3) return `${Math.floor(d / 3600e3)}h`; return `${Math.floor(d / 86400e3)}d`; };
@@ -331,7 +335,7 @@ function addUserBubble(text) {
   let files = [];
   if ((m = text.match(/^([\s\S]*?)\n*\[Attached files\]\n([\s\S]*)$/))) { text = m[1].trim(); files = m[2].split('\n').map((l) => l.replace(/^- /, '').trim()).filter(Boolean); }
   const u = document.createElement('div'); u.className = 'msg user';
-  const isMedia = (f) => /\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm)$/i.test(f);
+  const isMedia = (f) => /\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm|m4a|mp3|wav)$/i.test(f);
   u.innerHTML = `${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
   els.thread.appendChild(u);
 }
@@ -357,6 +361,8 @@ function send(text) {
   text = (text ?? els.input.value).trim();
   if (state.attachments.some((a) => a.uploading)) return; // wait for uploads
   const files = state.attachments.map((a) => a.path);
+  const heard = state.attachments.filter((a) => a.transcript && !text.includes(a.transcript)).map((a) => `[Transcript of ${a.name}]\n${a.transcript}`);
+  if (heard.length) text = [text, ...heard].filter(Boolean).join('\n\n');
   if ((!text && !files.length) || !state.botId) return;
   hideEmpties(); finishTurn(); addUserBubble(`${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim());
   els.input.value = ''; autosize(); setBusy(true); state.attachments = []; renderAttachments();
@@ -368,7 +374,7 @@ const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024
 function renderAttachments() {
   const list = state.attachments;
   els.attachList.classList.toggle('hidden', !list.length);
-  els.attachList.innerHTML = list.map((a, i) => `<span class="attach${a.uploading ? ' uploading' : ''}"><span class="name">${esc(a.name)}</span><span class="size">${a.uploading ? 'uploading…' : fmtSize(a.size)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span>`).join('');
+  els.attachList.innerHTML = list.map((a, i) => `<span class="attach${a.uploading ? ' uploading' : ''}"><span class="name">${esc(a.name)}</span><span class="size">${a.uploading ? (/\.(m4a|mp3|wav|aac|ogg|oga|opus|webm|amr|flac|aiff?|caf)$/i.test(a.name) ? 'uploading + transcribing…' : 'uploading…') : a.transcript ? 'transcribed' : fmtSize(a.size)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span>`).join('');
   els.attachList.querySelectorAll('.x').forEach((b) => (b.onclick = () => { state.attachments.splice(Number(b.dataset.i), 1); renderAttachments(); }));
 }
 async function addFiles(fileList) {
@@ -378,7 +384,7 @@ async function addFiles(fileList) {
     try {
       const r = await fetch(`/api/bots/${state.botId}/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(entry.name), 'content-type': 'application/octet-stream', ...(token ? { 'x-cc-token': token } : {}) }, body: f });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
-      Object.assign(entry, { path: j.path, name: j.name, size: j.size, uploading: false });
+      Object.assign(entry, { path: j.path, name: j.name, size: j.size, uploading: false, transcript: j.text || '' });
     } catch (e) { state.attachments.splice(state.attachments.indexOf(entry), 1); alert(`Could not attach ${entry.name}: ${e.message}`); }
     renderAttachments();
   }
@@ -392,7 +398,7 @@ document.addEventListener('dragenter', (e) => { if (e.dataTransfer?.types?.inclu
 document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; els.dropOverlay.classList.add('hidden'); } });
 document.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
 document.addEventListener('drop', (e) => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); dragDepth = 0; els.dropOverlay.classList.add('hidden'); addFiles(e.dataTransfer.files); });
-function setBusy(b) { state.busy = b; els.btnSend.classList.toggle('hidden', b); els.btnStop.classList.toggle('hidden', !b); els.busyLabel.textContent = b ? `Working…${els.busyLabel.dataset.model ? ' · ' + els.busyLabel.dataset.model : ''}` : ''; if (!b && state.turn) finishTurn(); updateHead(); }
+function setBusy(b) { state.busy = b; els.btnSend.classList.remove('hidden'); els.btnStop.classList.toggle('hidden', !b); /* send stays available while busy: the message is queued */ els.busyLabel.textContent = b ? `Working…${els.busyLabel.dataset.model ? ' · ' + els.busyLabel.dataset.model : ''}` : ''; if (!b && state.turn) finishTurn(); updateHead(); }
 // Follow the conversation: stay pinned to the bottom while the reader is there, stop following once they scroll up,
 // and offer a "Latest" button instead of yanking them back.
 state.stick = true;
@@ -432,16 +438,22 @@ function alertUser() {
 }
 function renderBots() {
   renderBanners();
-  els.botList.innerHTML = '';
+  // Update rows in place (keyed by Bot id) instead of rebuilding: a rebuild between touchstart and touchend swallowed taps on phones.
   const sorted = [...state.bots].sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0));
-  for (const b of sorted) {
-    const row = document.createElement('button'); row.className = 'bot-row' + (b.id === state.botId ? ' active' : '');
+  const rows = new Map([...els.botList.querySelectorAll('.bot-row')].map((r) => [r.dataset.id, r]));
+  sorted.forEach((b, i) => {
+    let row = rows.get(b.id); rows.delete(b.id);
+    if (!row) { row = document.createElement('button'); row.className = 'bot-row'; row.dataset.id = b.id; row.innerHTML = '<span class="avatar"></span><span class="bot-text"><span class="bot-name"></span><span class="bot-sub"></span></span><span class="bot-right"></span>'; row.onclick = () => openBot(row.dataset.id); }
+    row.classList.toggle('active', b.id === state.botId);
+    const av = `${b.shape}|${b.color}|${b.name}`; if (row.dataset.av !== av) { setAvatar(row.querySelector('.avatar'), b); row.dataset.av = av; }
+    const put = (sel, html) => { const el = row.querySelector(sel); if (el.innerHTML !== html) el.innerHTML = html; };
+    put('.bot-name', esc(b.name));
+    put('.bot-sub', esc(b.busy ? 'Working…' : b.preview || b.label || 'Tap to give it a job'));
     const right = b.pendingApprovals ? `<span class="needs-ok">${b.pendingApprovals} to approve</span>` : b.busy ? '<span class="working" title="Working"></span>' : b.unread ? '<span class="unread" title="New reply"></span>' : '';
-    row.innerHTML = `<span class="avatar"></span><span class="bot-text"><span class="bot-name">${esc(b.name)}</span><span class="bot-sub">${esc(b.busy ? 'Working…' : b.preview || b.label || 'Tap to give it a job')}</span></span><span class="bot-right">${right}<span>${fmtAgo(b.lastActivity)}</span></span>`;
-    setAvatar(row.querySelector('.avatar'), b);
-    row.onclick = () => openBot(b.id);
-    els.botList.appendChild(row);
-  }
+    put('.bot-right', `${right}<span>${fmtAgo(b.lastActivity)}</span>`);
+    if (els.botList.children[i] !== row) els.botList.insertBefore(row, els.botList.children[i] || null);
+  });
+  for (const r of rows.values()) r.remove();
 }
 function updateHead() {
   const b = currentBot();
@@ -522,7 +534,7 @@ els.rKind.onchange = () => { const k = els.rKind.value; els.rTimeWrap.classList.
 els.rAdd.onclick = async () => { const b = currentBot(); if (!b) return; if (!els.rPrompt.value.trim()) return alert('Say what the routine should do.'); await api(`/api/bots/${b.id}/routines`, { method: 'POST', body: { name: els.rName.value, prompt: els.rPrompt.value, schedule: { kind: els.rKind.value, time: els.rTime.value, minutes: Number(els.rMinutes.value) } } }); els.rName.value = ''; els.rPrompt.value = ''; els.addRoutine.open = false; loadRoutines(); };
 
 // ---- wiring ----
-els.btnSend.onclick = () => send();
+els.btnSend.onclick = () => (rec.mr ? sendVoice() : send());
 els.btnStop.onclick = () => wsSend({ type: 'interrupt', botId: state.botId });
 els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.innerWidth > 760) { e.preventDefault(); send(); } });
 els.input.addEventListener('input', autosize);
@@ -667,3 +679,131 @@ function mentionChips(html) {
   return html;
 }
 document.addEventListener('click', (e) => { const el = e.target.closest('[data-bot]'); if (el && state.bots.some((b) => b.id === el.dataset.bot)) openBot(el.dataset.bot); });
+
+// ---- copy: a button on every code block, and tapping inline code copies it. Works on plain http too (fallback).
+async function copyText(t) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); return true; } } catch {}
+  const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length); let ok = false; try { ok = document.execCommand('copy'); } catch {} ta.remove(); return ok;
+}
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('.copy-btn, code.tap-copy'); if (!el) return;
+  e.preventDefault();
+  const pre = el.classList.contains('copy-btn') ? el.parentElement : null;
+  const text = pre ? (pre.querySelector('code') || pre).textContent.replace(/\n$/, '') : el.textContent;
+  const ok = await copyText(text);
+  if (pre) { el.innerHTML = ok ? CHECK_ICON : '!'; el.classList.add('copied'); setTimeout(() => { el.innerHTML = COPY_ICON; el.classList.remove('copied'); }, 1400); }
+  else { el.classList.add('copied'); setTimeout(() => el.classList.remove('copied'), 1000); }
+  if (ok) try { navigator.vibrate?.(15); } catch {}
+});
+
+// ---- voice notes: tap the mic, talk, tap send. Transcribed on the Mac (whisper.cpp); the Bot reads the transcript.
+const rec = { mr: null, chunks: [], started: 0, timer: null, stream: null };
+const recTick = () => { const s = Math.floor((Date.now() - rec.started) / 1000); els.recTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+async function startVoice() {
+  if (!state.botId || rec.mr || rec.starting) return;
+  rec.starting = true;
+  try {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return alert(window.isSecureContext ? 'This browser cannot record audio.' : 'Voice notes need the https address of Code Crew (browsers only allow the microphone on https).');
+    try { rec.stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { return alert(`Microphone not available: ${e.message}`); }
+    const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+    rec.mr = new MediaRecorder(rec.stream, type ? { mimeType: type } : undefined); rec.chunks = [];
+    rec.mr.ondataavailable = (e) => { if (e.data.size) rec.chunks.push(e.data); };
+    rec.mr.start(250); rec.started = Date.now(); recTick(); rec.timer = setInterval(recTick, 250);
+    els.composerWrap.classList.add('recording'); els.btnSend.classList.remove('hidden'); els.btnStop.classList.add('hidden');
+  } finally { rec.starting = false; }
+}
+function stopVoice() {
+  return new Promise((resolve) => {
+    const mr = rec.mr; if (!mr) return resolve(null);
+    mr.onstop = () => resolve(new Blob(rec.chunks, { type: mr.mimeType || 'audio/mp4' }));
+    try { mr.stop(); } catch { resolve(null); }
+    rec.stream?.getTracks().forEach((t) => t.stop()); clearInterval(rec.timer); rec.mr = null; rec.stream = null;
+    els.composerWrap.classList.remove('recording'); setBusy(state.busy);
+  });
+}
+async function sendVoice() {
+  const botId = state.botId, blob = await stopVoice();
+  if (!blob || blob.size < 800) return;
+  els.btnMic.disabled = true; els.busyLabel.textContent = 'Transcribing…';
+  try {
+    const ext = /webm/.test(blob.type) ? 'webm' : /ogg/.test(blob.type) ? 'ogg' : 'm4a', stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const r = await fetch(`/api/bots/${botId}/upload`, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-filename': encodeURIComponent(`voice-${stamp}.${ext}`), ...(token ? { 'x-cc-token': token } : {}) }, body: blob });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText);
+    const voice = j.text ? `🎙️ ${j.text}` : '🎙️ (voice note: no transcript, listen to the attached recording)';
+    if (state.botId !== botId) { wsSend({ type: 'send', botId, text: voice, attachments: [j.path] }); return; }
+    for (let i = 0; i < 300 && state.attachments.some((a) => a.uploading); i++) await new Promise((r) => setTimeout(r, 200)); // another file still uploading
+    const draft = els.input.value.trim();
+    state.attachments.push({ path: j.path, name: j.name, size: j.size }); send([draft, voice].filter(Boolean).join('\n\n'));
+  } catch (e) { alert(`Voice note failed: ${e.message}`); }
+  finally { els.btnMic.disabled = false; if (!state.busy) els.busyLabel.textContent = ''; }
+}
+els.btnMic.onclick = startVoice;
+els.btnRecCancel.onclick = () => { stopVoice(); };
+
+// ---- swipe right in a conversation to go back to the Bot list (phones; home-screen apps get no native back gesture)
+(() => {
+  const main = document.getElementById('main'); let sx = 0, sy = 0, st = 0, dx = 0, mode = null; // null → undecided, 'swipe', 'scroll'
+  const scrollsSideways = (el) => { for (let n = el; n && n !== main; n = n.parentElement) if (n.scrollWidth > n.clientWidth + 2 && getComputedStyle(n).overflowX !== 'visible' && n.scrollLeft > 0) return true; return false; };
+  main.addEventListener('touchstart', (e) => {
+    mode = null; dx = 0;
+    if (window.innerWidth > 760 || !els.app.classList.contains('show-chat') || e.touches.length !== 1 || rec.mr) return (mode = 'scroll');
+    if (e.target.closest('textarea, input, select, dialog, .drawer') || scrollsSideways(e.target)) return (mode = 'scroll');
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
+  }, { passive: true });
+  main.addEventListener('touchmove', (e) => {
+    if (mode === 'scroll') return;
+    const x = e.touches[0].clientX - sx, y = e.touches[0].clientY - sy;
+    if (!mode) { if (Math.abs(x) < 10 && Math.abs(y) < 10) return; mode = x > 0 && Math.abs(x) > Math.abs(y) * 1.5 ? 'swipe' : 'scroll'; if (mode === 'swipe') els.app.classList.add('swiping'); else return; }
+    dx = Math.max(0, x); main.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (mode !== 'swipe') return; mode = null;
+    const fast = dx > 40 && dx / Math.max(1, Date.now() - st) > 0.5, go = dx > window.innerWidth * 0.33 || fast;
+    main.style.transition = 'transform .18s ease-out'; main.style.transform = go ? `translateX(${window.innerWidth}px)` : '';
+    setTimeout(() => { main.style.transition = ''; main.style.transform = ''; els.app.classList.remove('swiping'); if (go) els.app.classList.remove('show-chat'); }, 190);
+  };
+  main.addEventListener('touchend', end); main.addEventListener('touchcancel', end);
+})();
+
+// ---- send grows while there is something to send
+const syncHasText = () => els.composerWrap.classList.toggle('has-text', !!els.input.value.trim() || state.attachments.length > 0);
+els.input.addEventListener('input', syncHasText);
+const _renderAttachments = renderAttachments; renderAttachments = function () { _renderAttachments(); syncHasText(); };
+const _autosize = autosize; autosize = function () { _autosize(); syncHasText(); };
+
+// ---- / menu: the Bot's Claude Code commands (skills, project commands, built-ins), like typing / in the terminal
+const slash = { cache: new Map(), idx: 0, list: [] };
+function slashCommands(botId) {
+  let c = slash.cache.get(botId);
+  if (!c) { c = api(`/api/bots/${botId}/commands`).then((r) => r.commands || []).catch(() => []); slash.cache.set(botId, c); c.then((l) => { if (!l.length) setTimeout(() => slash.cache.get(botId) === c && slash.cache.delete(botId), 30000); }); }
+  return c;
+}
+const hideSlash = () => { els.slashPop.classList.add('hidden'); slash.list = []; };
+async function renderSlash() {
+  const v = els.input.value, m = v.match(/^\/([\w:.-]*)$/);
+  if (!m || !state.botId) return hideSlash();
+  const q = m[1].toLowerCase(), botId = state.botId;
+  if (!slash.cache.has(botId)) { els.slashPop.innerHTML = '<div class="slash-empty">Loading commands…</div>'; els.slashPop.classList.remove('hidden'); }
+  const all = await slashCommands(botId);
+  if (els.input.value !== v || state.botId !== botId) return;
+  const list = all.filter((c) => c.name.toLowerCase().includes(q))
+    .sort((a, b) => (b.name.toLowerCase().startsWith(q) - a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name));
+  slash.list = list; slash.idx = Math.max(0, Math.min(slash.idx, list.length - 1));
+  els.slashPop.classList.remove('hidden');
+  if (!list.length) { els.slashPop.innerHTML = `<div class="slash-empty">${all.length ? 'No matching command' : 'Could not load commands'}</div>`; return; }
+  els.slashPop.innerHTML = list.map((c, i) => `<button type="button" class="slash-opt${i === slash.idx ? ' sel' : ''}" data-i="${i}"><span class="slash-name">/${esc(c.name)}${c.hint ? ` <span class="slash-hint">${esc(c.hint)}</span>` : ''}</span>${c.description ? `<span class="slash-desc">${esc(c.description)}</span>` : ''}</button>`).join('');
+  els.slashPop.querySelectorAll('.slash-opt').forEach((o) => (o.onmousedown = (e) => { e.preventDefault(); pickSlash(Number(o.dataset.i)); }));
+  els.slashPop.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
+}
+function pickSlash(i) { const c = slash.list[i]; if (!c) return; els.input.value = `/${c.name} `; hideSlash(); autosize(); els.input.focus(); els.input.setSelectionRange(els.input.value.length, els.input.value.length); }
+els.input.addEventListener('input', () => { slash.idx = 0; renderSlash(); });
+els.input.addEventListener('keydown', (e) => {
+  if (els.slashPop.classList.contains('hidden') || !slash.list.length) { if (e.key === 'Escape') hideSlash(); return; }
+  const n = slash.list.length;
+  if (e.key === 'ArrowDown') { e.preventDefault(); slash.idx = (slash.idx + 1) % n; renderSlash(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); slash.idx = (slash.idx - 1 + n) % n; renderSlash(); }
+  else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); pickSlash(slash.idx); }
+  else if (e.key === 'Escape') hideSlash();
+}, true);
+const _autosize2 = autosize; autosize = function () { _autosize2(); if (!els.input.value) hideSlash(); };

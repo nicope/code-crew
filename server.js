@@ -296,6 +296,8 @@ class BotRuntime {
       for await (const msg of q) {
         if (msg.session_id && msg.session_id !== this.bot.sessionId) { this.bot.sessionId = msg.session_id; save(); }
         this.turnBuffer.push(msg);
+        if (msg.type === 'system' && msg.subtype === 'init') this.terminalCmds = msg.terminal_slash_commands || [];
+        if (msg.type === 'system' && msg.subtype === 'commands_changed') this.commands = null;
         if (msg.type === 'system' && msg.subtype === 'status' && msg.status === 'requesting') this.markStarted(); // Claude Code is building an API request: queued messages are in it
         if (msg.type === 'assistant') for (const b of msg.message?.content || []) if (b.type === 'text' && b.text?.trim()) (this.turnBufferText ||= []).push(b.text.trim());
         this.broadcast({ type: 'sdk', msg });
@@ -336,9 +338,11 @@ class BotRuntime {
     if (this.busy) this.bot.preview = previewFor(this.bot.turns[0].text);
     else if (lastText) this.bot.preview = lastText.replace(/\s+/g, ' ').slice(0, 140);
     if (this.needsRestart && !this.busy) { this.needsRestart = false; setTimeout(() => !this.busy && this.restart(), 50); }
-    if (this.subscribers.size === 0) {
+    if (lastText) this.lastReplyText = lastText;
+    if (this.subscribers.size === 0 && !this.busy) { // queued or folded turns still running: wait for the real end
       this.bot.unread = true;
-      notify({ title: `${this.bot.name} finished`, body: lastText || 'Open to see the result.', tag: `bot-${this.bot.id}`, url: `/?bot=${this.bot.id}` });
+      notify({ title: `${this.bot.name} finished`, body: this.lastReplyText || 'Open to see the result.', tag: `bot-${this.bot.id}`, url: `/?bot=${this.bot.id}` });
+      this.lastReplyText = '';
     }
     save(); broadcastBots(); this.scheduleIdle();
   }
@@ -446,11 +450,27 @@ const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'a
 const MAX_UPLOAD = 50 * 1024 * 1024;
 const readRaw = (req) => new Promise((resolve, reject) => { const chunks = []; let n = 0; req.on('data', (c) => { n += c.length; if (n > MAX_UPLOAD) { reject(new Error('too large')); req.destroy(); } else chunks.push(c); }); req.on('end', () => resolve(Buffer.concat(chunks))); req.on('error', reject); });
 const safeName = (s) => String(s || 'file').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file';
+// Interactive terminal screens that make no sense in a chat (Code Crew has its own controls for model, approvals, reset).
+const HIDDEN_COMMANDS = ['clear', 'resume', 'login', 'logout', 'exit', 'quit', 'config', 'settings', 'model', 'theme', 'vim', 'terminal-setup', 'statusline', 'ide', 'permissions', 'hooks', 'mcp', 'agents', 'add-dir', 'rewind', 'keybindings', 'plugin', 'plugins', 'doctor', 'output-style', 'sandbox', 'bashes', 'tasks', 'fast', 'upgrade', 'install-github-app', 'privacy-settings', 'color'];
+// Voice notes: transcribed on this machine with whisper.cpp (free, private). Optional: without it, the recording is still sent.
+const WHISPER_BIN = process.env.WHISPER_BIN || ['/opt/homebrew/bin/whisper-cli', '/usr/local/bin/whisper-cli'].find((p) => fs.existsSync(p)) || 'whisper-cli';
+const WHISPER_MODEL = process.env.WHISPER_MODEL || path.join(HOME, '.cache', 'whisper', 'ggml-large-v3-turbo-q5_0.bin');
+const runCmd = (cmd, args) => new Promise((resolve, reject) => execFile(cmd, args, { timeout: 180000, maxBuffer: 8e6 }, (err, out, errOut) => err ? reject(new Error(String(errOut || err.message).trim().split('\n').pop())) : resolve(out)));
+async function transcribe(file) {
+  if (!fs.existsSync(WHISPER_MODEL)) throw new Error('speech-to-text not set up');
+  const wav = path.join(DATA_DIR, `voice-${randomUUID()}.wav`);
+  try {
+    try { await runCmd('/usr/bin/afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', file, wav]); } // macOS built-in: m4a/mp4/caf/wav
+    catch { await runCmd('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav]); } // webm/ogg and non-macOS
+    const out = await runCmd(WHISPER_BIN, ['-m', WHISPER_MODEL, '-f', wav, '-l', 'auto', '-nt', '-np']);
+    return out.replace(/\[[A-Z_ ]+\]/g, ' ').replace(/\s+/g, ' ').trim();
+  } finally { fs.rm(wav, { force: true }, () => {}); }
+}
 const readBody = (req) => new Promise((resolve) => { let s = ''; req.on('data', (c) => (s += c)); req.on('end', () => { try { resolve(JSON.parse(s || '{}')); } catch { resolve({}); } }); });
 const safeEq = (a, b) => { a = Buffer.from(String(a || '')); b = Buffer.from(String(b || '')); return a.length === b.length && a.length > 0 && timingSafeEqual(a, b); };
 // Browsers send Origin on WebSocket upgrades and cross-origin requests; a page from another origin (another localhost port, a random site via DNS rebinding) must not drive this server.
 const sameOrigin = (req) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
-const clientKey = (req) => { const peer = req.socket?.remoteAddress || '?'; const fwd = req.headers['x-forwarded-for']; return (fwd && /^(::1|127\.|::ffff:127\.|100\.)/.test(peer)) ? String(fwd).split(',')[0].trim() : peer; };
+const clientKey = (req) => { const peer = req.socket?.remoteAddress || '?'; const fwd = req.headers['x-forwarded-for']; return (fwd && /^(::1|127\.|::ffff:127\.|100\.)/.test(peer)) ? String(fwd).split(',').pop().trim() : peer; }; // the proxy appends the real client last; earlier entries are client-controlled
 const failures = new Map(); // client → { n, until }
 function authorized(url, req) {
   if (!TOKEN) return true;
@@ -569,7 +589,25 @@ const server = http.createServer(async (req, res) => {
       const ext = path.extname(name), base = name.slice(0, name.length - ext.length);
       let file = path.join(dir, name), k = 2; while (fs.existsSync(file)) file = path.join(dir, `${base} (${k++})${ext}`);
       fs.writeFileSync(file, data);
-      return json(res, 200, { path: file, name: path.basename(file), size: data.length });
+      // Audio files (a forwarded WhatsApp note, a recording) are transcribed so the Bot can read them.
+      let text = '';
+      if (/\.(m4a|mp3|wav|aac|caf|aiff?|ogg|oga|opus|amr|flac)$/i.test(file) || /^voice-.*\.webm$/i.test(path.basename(file))) { try { text = await transcribe(file); } catch (e) { console.error('[transcribe]', e.message); } }
+      return json(res, 200, { path: file, name: path.basename(file), size: data.length, text });
+    }
+    // Slash commands this Bot's Claude Code session supports (skills, project commands, built-ins), for the / menu.
+    if ((m = p.match(/^\/api\/bots\/([0-9a-f-]+)\/commands$/)) && req.method === 'GET') {
+      const bot = botById(m[1]); if (!bot) return json(res, 404, { error: 'no such bot' });
+      const rt = getRuntime(bot.id);
+      if (!rt.commands || Date.now() - (rt.commandsAt || 0) > 10 * 60e3) {
+        rt.ensureStarted(); const q = rt.query; if (!q) return json(res, 200, { commands: [] });
+        try { rt.commands = await Promise.race([q.supportedCommands(), new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 20000))]); rt.commandsAt = Date.now(); }
+        catch (e) { return json(res, 200, { commands: [], error: e.message }); }
+        finally { rt.scheduleIdle(); }
+      }
+      const hide = new Set([...HIDDEN_COMMANDS, ...(rt.terminalCmds || [])]);
+      const seen = new Set(), out = [];
+      for (const c of rt.commands || []) { if (hide.has(c.name) || seen.has(c.name)) continue; seen.add(c.name); out.push({ name: c.name, description: c.description || '', hint: c.argumentHint || '', builtin: !!c.builtin }); }
+      return json(res, 200, { commands: out });
     }
     if ((m = p.match(/^\/api\/bots\/([0-9a-f-]+)$/))) {
       const bot = botById(m[1]); if (!bot) return json(res, 404, { error: 'no such bot' });
@@ -673,4 +711,12 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => { sockets.delete(ws); current?.unsubscribe(ws); });
 });
 
+// Bound to one non-loopback address (e.g. a Tailscale IP)? Also answer on 127.0.0.1 so a local https proxy
+// (`tailscale serve --https=4748 http://127.0.0.1:4747`) can reach it. Same handler, same token check.
+if (!isLoopback(HOST) && HOST !== '0.0.0.0' && HOST !== '::') {
+  const local = http.createServer((req, res) => server.emit('request', req, res));
+  local.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head));
+  local.on('error', (e) => console.error('[loopback listener]', e.message));
+  local.listen(PORT, '127.0.0.1');
+}
 server.listen(PORT, HOST, () => console.log(`Code Crew ready → http://${HOST === '0.0.0.0' ? '<host>' : HOST}:${PORT}${process.stdout.isTTY ? '/?token=' + TOKEN : '  (token: run `code-crew link`)'}  data: ${DATA_DIR}  auth: ${authMode()}`));

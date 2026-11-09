@@ -21,7 +21,10 @@ Built for the phone as much as the desktop.
 - **Connectors.** GitHub, Supabase, Vercel, Cloudflare, Stripe, Notion, Linear, Slack, Klaviyo, Shopify, Resend, Firecrawl, Context7, a headless Browser, or any MCP server / REST API. Paste a key once; every Bot can use it.
 - **Vault.** Bots request logins with a reason; you approve each one. Optional 1Password integration.
 - **Media and files.** Images, video, audio and PDFs a Bot produces show inline. Attach files by drag and drop, paste or the paperclip.
-- **Phone notifications** for approvals and finished work (https needed, see below).
+- **Voice notes.** Tap the mic, talk, send. Transcribed on your machine with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (free, private, any language); attach a recorded audio file, such as a WhatsApp voice note, and it is transcribed too. The Bot reads the transcript; the recording stays in the chat.
+- **Slash commands.** Type `/` for the Bot's Claude Code commands, with descriptions and arguments: built-ins like `/compact` and `/code-review`, your skills and plugins, and the project's own commands. Terminal-only screens are hidden.
+- **Copy with a tap.** Every code block has a copy button; tapping inline code copies it.
+- **Made for the phone.** Install it to the home screen, swipe right to go back to the Bot list, send while a Bot is working (the message queues), and get push notifications for approvals and finished work (https needed, see below).
 
 ## Install
 
@@ -53,12 +56,25 @@ and keeps it in `~/.code-crew/oauth-token` (mode 600). `code-crew service restar
 
 ### Phone access and https
 
-Pick the Tailscale address in setup and the link works from any device on your tailnet. For https, which also
-unlocks push notifications:
+Pick the Tailscale address in setup and the link works from any device on your tailnet. For https, which the
+phone needs for push notifications and the microphone:
 
 ```bash
-tailscale serve --bg --https=443 http://<tailscale-ip>:4747
+tailscale serve --bg --https=443 http://127.0.0.1:4747
 ```
+
+When Code Crew is bound to a Tailscale IP it also listens on `127.0.0.1`, because Tailscale cannot proxy to its own
+address. On the phone, open the https link in Safari and use Share → Add to Home Screen.
+
+### Voice notes (optional)
+
+```bash
+brew install whisper-cpp ffmpeg     # ffmpeg only for WhatsApp/ogg audio; macOS converts m4a itself
+mkdir -p ~/.cache/whisper && curl -L -o ~/.cache/whisper/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+```
+
+Point elsewhere with `WHISPER_BIN` and `WHISPER_MODEL`. Without them, recordings are still sent, just not transcribed.
 
 On a VPS use the `Dockerfile` (pass `CODE_CREW_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`) behind Tailscale or an https
 reverse proxy. Never expose the plain http port to the internet: whoever has the token controls the machine.

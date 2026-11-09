@@ -100,10 +100,10 @@ async function setup() {
   if (tsIp && !isLoopback(c.host)) {
     say('\n• https: Tailscale can terminate https for you at https://<machine>.<tailnet>.ts.net. Requirements, in the Tailscale admin console under DNS: MagicDNS on and "HTTPS Certificates" enabled.');
     if (await yes('  Set it up now with `tailscale serve`? (tailnet only; undo with `tailscale serve reset`)', true)) {
-      const r = spawnSync(ts, ['serve', '--bg', '--https=443', `http://${c.host}:${c.port}`], { stdio: 'inherit' });
+      const r = spawnSync(ts, ['serve', '--bg', '--https=443', `http://127.0.0.1:${c.port}`], { stdio: 'inherit' });
       if (r.status === 0) say('  Done. Use the https link printed above on your phone; then Share → Add to Home Screen, open it from there, and tap "Turn on notifications".');
       else say('  tailscale serve did not succeed; the plain http link still works. Common cause: HTTPS Certificates not enabled in the admin console.');
-    } else say(`  Later: tailscale serve --bg --https=443 http://${c.host}:${c.port}`);
+    } else say(`  Later: tailscale serve --bg --https=443 http://127.0.0.1:${c.port}`);
   }
   rl.close();
   await showLink({ ...config, ...c });

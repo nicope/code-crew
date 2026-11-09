@@ -70,7 +70,9 @@
       <div class="composer">
         <div class="attach-list hidden" id="attachList"></div>
         <div class="mention-pop hidden" id="mentionPop"></div>
+        <div class="mention-pop slash-pop hidden" id="slashPop"></div>
         <textarea id="input" rows="1" placeholder="Message… (@ to bring in another Bot)"></textarea>
+        <div class="rec-bar" id="recBar"><span class="rec-dot"></span><span class="rec-time" id="recTime">0:00</span><span class="rec-hint">Recording… tap ↑ to send</span><button type="button" class="pill" id="btnRecCancel">Cancel</button></div>
         <div class="composer-row">
           <div class="actions-left">
             <button class="icon-btn" id="btnAttach" title="Attach files" aria-label="Attach files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 12.5l-8.5 8.5a6 6 0 01-8.5-8.5l9-9a4 4 0 015.7 5.7l-9 9a2 2 0 01-2.8-2.8l8.3-8.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -78,6 +80,7 @@
             <span class="busy-label" id="busyLabel"></span>
           </div>
           <div class="actions">
+            <button class="icon-btn mic" id="btnMic" title="Voice note" aria-label="Record a voice note"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
             <button class="send" id="btnSend" aria-label="Send"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 14V4M9 4L4.5 8.5M9 4l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <button class="stop hidden" id="btnStop" aria-label="Stop"><svg width="18" height="18" viewBox="0 0 18 18"><rect x="4.5" y="4.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg></button>
           </div>
