@@ -21,6 +21,7 @@ const STORE = path.join(DATA_DIR, 'store.json');
 const OAUTH_TOKEN_FILE = config.oauthTokenFile;
 const IDLE_SHUTDOWN_MS = 15 * 60 * 1000;
 const APPROVAL_EXPIRY_MS = 30 * 60 * 1000;
+const FOLD_GRACE_MS = 20000;       // after a result, how long to wait for the next API call before treating queued messages as answered
 const DIR_ROOTS = config.dirRoots;
 
 let TOKEN = config.token;
@@ -171,6 +172,7 @@ function vaultMcpServer(rt) {
 // ---------------------------------------------------------------- store
 const store = { bots: [], routines: [], push: [] };
 try { Object.assign(store, JSON.parse(fs.readFileSync(STORE, 'utf8'))); } catch {}
+for (const b of store.bots) b.turns ||= []; // messages queued or in flight, kept so a restart cannot lose them
 let saveTimer = null;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.writeFileSync(STORE, JSON.stringify(store, null, 2)), 150); }
 const flush = () => { clearTimeout(saveTimer); fs.writeFileSync(STORE, JSON.stringify(store, null, 2)); };
@@ -188,7 +190,8 @@ function repoFor(cwd) {
 }
 function publicBot(b) {
   const rt = runtimes.get(b.id);
-  return { ...b, repo: repoFor(b.cwd), busy: !!rt?.busy, pendingApprovals: rt ? rt.pending.size : 0, routines: store.routines.filter((r) => r.botId === b.id).length };
+  const { turns = [], ...pub } = b;
+  return { ...pub, repo: repoFor(b.cwd), busy: !!rt?.busy || turns.length > 0, queued: turns.length, pendingApprovals: rt ? rt.pending.size : 0, routines: store.routines.filter((r) => r.botId === b.id).length };
 }
 
 if (store.bots.length === 0) {
@@ -247,9 +250,16 @@ function identityPrompt(bot) {
   ].join('\n');
 }
 
+// One line for the Bot list: who the message came from and how it starts.
+function previewFor(text) {
+  const rm = text.match(/^\[Routine: ([^\]]+)\]/), bm = text.match(/^\[Message from Bot "([^"]+)"\]/);
+  const mm = text.match(/^\[Mentioned by the user in Bot "([^"]+)"'s conversation\]/);
+  return rm ? `Routine ${rm[1]} ran` : mm ? `You (in ${mm[1]}'s chat): ${text.split('\n').slice(1).join(' ').trim().slice(0, 100)}` : bm ? `From ${bm[1]}: ${text.split('\n').slice(1).join(' ').trim().slice(0, 100)}` : `You: ${text.replace(/\n\n\[Attached files\][\s\S]*$/, '').replace(/\s+/g, ' ').slice(0, 120)}`;
+}
+
 class BotRuntime {
   constructor(bot) {
-    this.bot = bot; this.subscribers = new Set(); this.turnBuffer = []; this.pending = new Map();
+    this.bot = bot; bot.turns ||= []; this.subscribers = new Set(); this.turnBuffer = []; this.pending = new Map();
     this.busy = false; this.query = null; this.inbox = null; this.abort = null; this.idleTimer = null; this.turnOrigin = 'user';
   }
   broadcast(obj) { const s = JSON.stringify({ botId: this.bot.id, ...obj }); for (const ws of this.subscribers) if (ws.readyState === 1) ws.send(s); }
@@ -281,27 +291,51 @@ class BotRuntime {
 
   async pump() {
     const q = this.query;
+    let handled = false; // the catch below already closed the dying turn
     try {
       for await (const msg of q) {
         if (msg.session_id && msg.session_id !== this.bot.sessionId) { this.bot.sessionId = msg.session_id; save(); }
         this.turnBuffer.push(msg);
+        if (msg.type === 'system' && msg.subtype === 'status' && msg.status === 'requesting') this.markStarted(); // Claude Code is building an API request: queued messages are in it
         if (msg.type === 'assistant') for (const b of msg.message?.content || []) if (b.type === 'text' && b.text?.trim()) (this.turnBufferText ||= []).push(b.text.trim());
         this.broadcast({ type: 'sdk', msg });
         if (msg.type === 'result') this.finishTurn();
       }
     } catch (err) {
-      if (!this.abort.signal.aborted) { this.broadcast({ type: 'error', error: String(err?.message || err) }); if (this.busy) this.finishTurn(); }
+      if (!this.abort.signal.aborted) { this.broadcast({ type: 'error', error: String(err?.message || err) }); if (this.busy) { this.finishTurn(); handled = true; } }
     } finally {
-      if (this.query === q) { this.query = null; this.inbox = null; if (this.busy) this.finishTurn(); }
+      if (this.query === q) {
+        this.query = null; this.inbox = null;
+        if (this.abort?.signal.aborted) return;
+        if (this.busy && !handled) this.finishTurn();
+        const left = this.bot.turns.splice(0); // queued behind the turn that just died; the closed inbox would have swallowed them
+        if (left.length) { this.busy = false; for (const t of left) this.enqueue(t.text, { origin: t.origin, resumed: true }); }
+      }
     }
   }
 
-  finishTurn() {
-    this.busy = false; this.turnBuffer = [];
+  // Claude Code folds a message that arrives during a tool call into the running turn, but one that arrives while the
+  // final answer is already being generated starts a new turn. Every message pushed before an API request is in that
+  // request, so each "requesting" status marks the queued turns as started, and a result closes exactly the started ones.
+  markStarted() {
+    clearTimeout(this.foldTimer);
+    const cutoff = Date.now() - 500;
+    for (const t of this.bot.turns) if (!t.started && t.at < cutoff) t.started = true;
+  }
+  finishTurn(all = false) {
+    clearTimeout(this.foldTimer);
+    const turns = this.bot.turns;
+    if (all || !turns.some((t) => t.started)) turns.splice(0, all ? turns.length : 1);
+    else this.bot.turns = turns.filter((t) => !t.started);
+    this.busy = this.bot.turns.length > 0; // a message that arrived mid-turn is already running: the Bot is not idle
+    // If no new API call follows, the remaining messages were folded into the turn that just ended after all.
+    if (this.busy && this.query) this.foldTimer = setTimeout(() => this.busy && this.query && this.finishTurn(true), FOLD_GRACE_MS);
+    this.turnBuffer = [];
     const lastText = [...(this.turnBufferText || [])].pop(); this.turnBufferText = [];
     this.bot.lastActivity = Date.now();
-    if (lastText) this.bot.preview = lastText.replace(/\s+/g, ' ').slice(0, 140);
-    if (this.needsRestart) { this.needsRestart = false; setTimeout(() => !this.busy && this.restart(), 50); }
+    if (this.busy) this.bot.preview = previewFor(this.bot.turns[0].text);
+    else if (lastText) this.bot.preview = lastText.replace(/\s+/g, ' ').slice(0, 140);
+    if (this.needsRestart && !this.busy) { this.needsRestart = false; setTimeout(() => !this.busy && this.restart(), 50); }
     if (this.subscribers.size === 0) {
       this.bot.unread = true;
       notify({ title: `${this.bot.name} finished`, body: lastText || 'Open to see the result.', tag: `bot-${this.bot.id}`, url: `/?bot=${this.bot.id}` });
@@ -309,15 +343,15 @@ class BotRuntime {
     save(); broadcastBots(); this.scheduleIdle();
   }
 
-  enqueue(text, { origin = 'user' } = {}) {
+  enqueue(text, { origin = 'user', resumed = false } = {}) {
     this.ensureStarted();
     clearTimeout(this.idleTimer);
     this.busy = true; this.turnOrigin = origin; this.bot.lastActivity = Date.now();
     if (origin === 'user') this.bot.unread = false;
-    const rm = text.match(/^\[Routine: ([^\]]+)\]/), bm = text.match(/^\[Message from Bot "([^"]+)"\]/);
-    const mm = text.match(/^\[Mentioned by the user in Bot "([^"]+)"'s conversation\]/);
-    this.bot.preview = rm ? `Routine ${rm[1]} ran` : mm ? `You (in ${mm[1]}'s chat): ${text.split('\n').slice(1).join(' ').trim().slice(0, 100)}` : bm ? `From ${bm[1]}: ${text.split('\n').slice(1).join(' ').trim().slice(0, 100)}` : `You: ${text.replace(/\n\n\[Attached files\][\s\S]*$/, '').replace(/\s+/g, ' ').slice(0, 120)}`;
-    this.inbox.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: this.bot.sessionId || '' });
+    this.bot.turns.push({ text, origin, at: Date.now(), started: false });
+    this.bot.preview = previewFor(text);
+    const body = resumed ? `${text}\n\n[Re-delivered: the previous session ended before this message was finished. If your transcript shows you already started on it, continue from where you stopped instead of starting over.]` : text;
+    this.inbox.push({ type: 'user', message: { role: 'user', content: body }, parent_tool_use_id: null, session_id: this.bot.sessionId || '' });
     save(); broadcastBots();
   }
 
@@ -345,7 +379,7 @@ class BotRuntime {
   unsubscribe(ws) { this.subscribers.delete(ws); this.scheduleIdle(); }
   scheduleIdle() { clearTimeout(this.idleTimer); if (!this.busy && this.subscribers.size === 0) this.idleTimer = setTimeout(() => this.shutdown(), IDLE_SHUTDOWN_MS); }
   shutdown() { if (!this.query || this.busy) return; this.inbox?.close(); this.abort?.abort(); this.query = null; this.inbox = null; }
-  restart() { this.inbox?.close(); this.abort?.abort(); this.query = null; this.inbox = null; this.busy = false; this.turnBuffer = []; for (const [, p] of this.pending) p.done({ behavior: 'deny', message: 'Bot restarted' }); }
+  restart() { clearTimeout(this.foldTimer); this.inbox?.close(); this.abort?.abort(); this.query = null; this.inbox = null; this.busy = false; this.turnBuffer = []; this.bot.turns = []; for (const [, p] of this.pending) p.done({ behavior: 'deny', message: 'Bot restarted' }); }
   destroy() { this.restart(); for (const ws of this.subscribers) ws.readyState === 1 && ws.send(JSON.stringify({ type: 'bot_deleted', botId: this.bot.id })); this.subscribers.clear(); }
 }
 // Bots that already had conversations before previews existed: take the last message from the session transcript.
@@ -365,6 +399,15 @@ async function backfillPreviews() {
   if (changed) { save(); broadcastBots(); }
 }
 setTimeout(() => backfillPreviews().catch(() => {}), 500);
+// Turns that were queued or running when the last process died: hand them back to their Bots.
+function redeliverTurns() {
+  for (const bot of store.bots) {
+    const left = (bot.turns || []).splice(0); if (!left.length) continue;
+    console.log(`${bot.name}: re-delivering ${left.length} message(s) interrupted by the restart`);
+    for (const t of left) getRuntime(bot.id).enqueue(t.text, { origin: t.origin || 'user', resumed: true });
+  }
+}
+setTimeout(redeliverTurns, 1500);
 // "@Name" in a message brings that Bot in; longest names first so "@GF Videos" beats "@GF".
 const mentionsIn = (text, self) => store.bots.filter((b) => b.id !== self.id).sort((a, b) => b.name.length - a.name.length).filter((b) => new RegExp(`(^|[^\\w])@${b.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`, 'i').test(text));
 // Bots run as the same OS user as this server, so file permissions alone cannot keep them out of Code Crew's own
