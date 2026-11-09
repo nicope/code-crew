@@ -86,17 +86,33 @@ const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" ar
 const setAvatar = (el, bot) => { el.innerHTML = avatarSvg(bot.shape, bot.color, bot.name); };
 
 // ---- state ----
-const state = { ws: null, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, dirs: [], defaultDir: '' };
+const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, dirs: [], defaultDir: '' };
 const currentBot = () => state.bots.find((b) => b.id === state.botId);
 
 // ---- websocket ----
 function connect() {
+  clearTimeout(state.reconnectTimer); state.reconnectTimer = null;
+  if (state.ws && state.ws.readyState <= 1) { try { state.ws.onclose = null; state.ws.close(); } catch {} }
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   state.ws = ws;
-  ws.onopen = () => { els.connDot.className = 'status-dot on'; els.connDot.title = 'Connected'; if (state.botId) wsSend({ type: 'subscribe', botId: state.botId }); };
-  ws.onclose = () => { els.connDot.className = 'status-dot off'; els.connDot.title = 'Reconnecting…'; setTimeout(connect, 1500); };
-  ws.onmessage = (e) => handle(JSON.parse(e.data));
+  ws.onopen = () => { els.connDot.className = 'status-dot on'; els.connDot.title = 'Connected'; state.lastMsgAt = Date.now(); if (state.botId) wsSend({ type: 'subscribe', botId: state.botId }); };
+  ws.onclose = () => { if (state.ws !== ws) return; els.connDot.className = 'status-dot off'; els.connDot.title = 'Reconnecting…'; clearTimeout(state.reconnectTimer); state.reconnectTimer = setTimeout(connect, 1500); };
+  ws.onmessage = (e) => { state.lastMsgAt = Date.now(); handle(JSON.parse(e.data)); };
 }
+// Phones suspend a background app and often leave its socket half-open: no close event, so no reconnect, and a tapped
+// Bot shows an empty conversation. When the app comes back, prove the link is alive or replace it.
+function checkLink() {
+  if (document.visibilityState === 'hidden') return;
+  const ws = state.ws;
+  if (!ws) return;                                          // first connection is made by the startup code
+  if (ws.readyState > 1) return connect();                 // closed, or closing: reconnect now rather than after the timer
+  if (ws.readyState === 0 || !state.botId || Date.now() - state.lastMsgAt < 15000) return;
+  const seen = state.lastMsgAt;
+  wsSend({ type: 'subscribe', botId: state.botId });        // the server answers with history; also catches up on what was missed
+  setTimeout(() => { if (state.ws === ws && state.lastMsgAt === seen) { try { ws.close(); } catch {} ws.onclose?.(); } }, 5000);
+}
+document.addEventListener('visibilitychange', checkLink);
+window.addEventListener('pageshow', checkLink); window.addEventListener('focus', checkLink); window.addEventListener('online', checkLink);
 const wsSend = (o) => state.ws?.readyState === 1 && state.ws.send(JSON.stringify(o));
 
 function handle(m) {
