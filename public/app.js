@@ -96,7 +96,12 @@ function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   state.ws = ws;
   ws.onopen = () => { els.connDot.className = 'status-dot on'; els.connDot.title = 'Connected'; state.lastMsgAt = Date.now(); if (state.botId) wsSend({ type: 'subscribe', botId: state.botId }); };
-  ws.onclose = () => { if (state.ws !== ws) return; els.connDot.className = 'status-dot off'; els.connDot.title = 'Reconnecting…'; clearTimeout(state.reconnectTimer); state.reconnectTimer = setTimeout(connect, 1500); };
+  ws.onclose = (e) => {
+    if (state.ws !== ws) return;
+    els.connDot.className = 'status-dot off';
+    if (e && e.code === 4001) { els.connDot.title = 'Not signed in'; showAuthGate(); return; } // the server refused our credentials: ask, don't retry every 1.5 s
+    els.connDot.title = 'Reconnecting…'; clearTimeout(state.reconnectTimer); state.reconnectTimer = setTimeout(connect, 1500);
+  };
   ws.onmessage = (e) => { state.lastMsgAt = Date.now(); handle(JSON.parse(e.data)); };
 }
 // Phones suspend a background app and often leave its socket half-open: no close event, so no reconnect, and a tapped

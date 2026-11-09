@@ -631,7 +631,11 @@ const server = http.createServer(async (req, res) => {
 // ---------------------------------------------------------------- websocket
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws, req) => {
-  if (!sameOrigin(req) || !authorized(new URL(req.url, 'http://x'), { ...req, headers: { ...req.headers, cookie: '' } })) { ws.close(4001, 'unauthorized'); return; }
+  // A page has a saved token for the socket URL, but a browser that only holds the login cookie (set by the `/?token=` link)
+  // must get in too: browsers always send Origin on an upgrade and sameOrigin() has checked it, so the cookie counts
+  // exactly as it does on the HTTP routes. A client without an Origin header (a script, not a page) needs the token itself.
+  const creds = req.headers.origin ? req : { ...req, headers: { ...req.headers, cookie: '' } };
+  if (!sameOrigin(req) || !authorized(new URL(req.url, 'http://x'), creds)) { ws.close(4001, 'unauthorized'); return; }
   sockets.add(ws);
   let current = null; // runtime this socket is viewing
   const reply = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
