@@ -3,7 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomUUID, randomBytes, timingSafeEqual, createHmac } from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { config, DATA_DIR, HOME, isLoopback, writeConfigFile, migrateLegacyData } from './config.js';
 migrateLegacyData();
@@ -472,8 +472,12 @@ const safeEq = (a, b) => { a = Buffer.from(String(a || '')); b = Buffer.from(Str
 const sameOrigin = (req) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
 const clientKey = (req) => { const peer = req.socket?.remoteAddress || '?'; const fwd = req.headers['x-forwarded-for']; return (fwd && /^(::1|127\.|::ffff:127\.|100\.)/.test(peer)) ? String(fwd).split(',').pop().trim() : peer; }; // the proxy appends the real client last; earlier entries are client-controlled
 const failures = new Map(); // client → { n, until }
+// A key that only opens Bot files (videos, images). Media players often load without cookies or headers, and a
+// home-screen app may hold only the login cookie, so file links carry this instead of the full access token.
+const mediaKey = () => TOKEN ? createHmac('sha256', TOKEN).update('code-crew media v1').digest('hex').slice(0, 32) : '';
 function authorized(url, req) {
   if (!TOKEN) return true;
+  if (req.method === 'GET' && /^\/api\/bots\/[0-9a-f-]+\/file$/.test(url.pathname) && safeEq(url.searchParams.get('k'), mediaKey())) return true;
   const ip = clientKey(req); const f = failures.get(ip);
   if (f && f.until > Date.now()) return false;
   const cookieTok = (req.headers.cookie || '').match(/(?:^|;\s*)cc_token=([^;]+)/)?.[1];
@@ -511,6 +515,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (TOKEN && p === '/' && url.searchParams.get('token') === TOKEN) res.setHeader('set-cookie', `cc_token=${TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
 
+    if (p === '/api/media-key') return json(res, 200, { key: mediaKey() });
     if (p === '/api/dirs') return json(res, 200, { dirs: listDirs(), default: DEFAULT_CWD, botsDir: BOTS_DIR, home: HOME, defaultPermission: DEFAULT_PERMISSION, defaultModel: DEFAULT_MODEL });
     let m;
     if (p === '/api/connectors' && req.method === 'GET') return json(res, 200, { connectors: publicConnectors() });

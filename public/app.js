@@ -4,10 +4,10 @@ const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf))(?=$|[\s`"')\]>.,;:!?])/gi;
-const fileUrl = (p) => `/api/bots/${state.botId}/file?path=${encodeURIComponent(p)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+const fileUrl = (p) => `/api/bots/${state.botId}/file?path=${encodeURIComponent(p)}${state.mediaKey ? `&k=${state.mediaKey}` : token ? `&token=${encodeURIComponent(token)}` : ''}`;
 function mediaTag(p, caption = '') {
   const ext = p.split('.').pop().toLowerCase(), name = p.split('/').pop(), u = fileUrl(p);
-  if (/^(mp4|m4v|mov|webm)$/.test(ext)) return `<figure class="media"><video controls playsinline preload="metadata" src="${esc(u)}"></video><figcaption>${esc(caption || name)}</figcaption></figure>`;
+  if (/^(mp4|m4v|mov|webm)$/.test(ext)) return `<figure class="media"><video controls playsinline preload="metadata" src="${esc(u)}#t=0.1"></video><figcaption>${esc(caption || name)}</figcaption></figure>`;
   if (/^(mp3|wav|m4a)$/.test(ext)) return `<figure class="media"><audio controls preload="metadata" src="${esc(u)}"></audio><figcaption>${esc(caption || name)}</figcaption></figure>`;
   if (ext === 'pdf') return `<a class="file-link" href="${esc(u)}" target="_blank" rel="noopener">📄 ${esc(caption || name)}</a>`;
   return `<figure class="media"><a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(caption || name)}" loading="lazy"></a><figcaption>${esc(caption || name)}</figcaption></figure>`;
@@ -548,6 +548,7 @@ document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.
   els.authInput.onkeydown = (e) => { if (e.key === 'Enter') els.authBtn.onclick(); };
   state.dirs = [];
   try { await loadDirs(); } catch (e) { if (e.message === 'unauthorized') return; }
+  try { state.mediaKey = (await api('/api/media-key')).key || ''; } catch {}
   setupNotifications();
   connect();
   const { bots } = await api('/api/bots'); state.bots = bots; renderBots();
