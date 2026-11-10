@@ -160,8 +160,8 @@ function vaultMcpServer(rt) {
       }
       return { content: [{ type: 'text', text: found.fields ? JSON.stringify({ ...found.fields, password: undefined, secret: found.value }, null, 2) : found.value }] };
     }),
-    tool('vault_request', 'Ask the user to add a login or secret you need and do not have. They see a card where they can paste it; it is stored in their vault and returned to you.', { name: z.string().describe('Short name for the item, e.g. "Vercel token" or "Shopify admin login"'), why: z.string().describe('What you need it for and where to get it, in one or two sentences') }, async ({ name, why }) => {
-      const res = await rt.askPermission('vault_request', { name, why });
+    tool('vault_request', 'Ask the user to add a login or secret you need and do not have. They see a card where they can paste it; it is stored in their vault and returned to you.', { name: z.string().describe('Short name for the item, e.g. "Vercel token" or "Shopify admin login"'), why: z.string().describe('What you need it for and where to get it, in one or two sentences'), fields: z.array(z.object({ label: z.string(), multiline: z.boolean().optional() })).max(6).optional().describe('When you need several values, one entry per value, e.g. [{label:"Issuer ID"},{label:"Key ID"},{label:"Private key (.p8)",multiline:true}]. The user fills a labeled box for each; you get them back as JSON {label: value}.') }, async ({ name, why, fields }) => {
+      const res = await rt.askPermission('vault_request', { name, why, fields: fields?.length ? fields : undefined });
       if (res.behavior !== 'allow' || !res.value) return { content: [{ type: 'text', text: 'The user did not provide it. Continue without it or explain what it would unlock.' }], isError: true };
       vault.items[name] = { value: res.value, note: `Added for ${rt.bot.name}: ${why.slice(0, 80)}`, createdAt: Date.now() }; saveVault();
       return { content: [{ type: 'text', text: res.value }] };

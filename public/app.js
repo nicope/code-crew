@@ -326,8 +326,9 @@ function showPermission(req) {
     const card = document.createElement('div'); card.className = 'perm vault'; card.dataset.id = req.id; const who = esc(currentBot()?.name || 'The Bot');
     card.innerHTML = req.toolName === 'vault'
       ? `<div class="perm-title">🔑 ${who} wants to use your <b>${esc(req.input.name)}</b> login</div><p class="reason">${esc(req.input.reason || '')}</p><div class="perm-actions"><button class="pill primary" data-a="once">Allow once</button><button class="pill" data-a="always">Always for this Bot</button><button class="pill" data-a="deny">Don't</button></div>`
-      : `<div class="perm-title">🔑 ${who} needs a credential: <b>${esc(req.input.name)}</b></div><p class="reason">${esc(req.input.why || '')}</p><input type="password" placeholder="Paste it here; it is saved to your vault" autocomplete="off"><div class="perm-actions"><button class="pill primary" data-a="once">Save and allow</button><button class="pill" data-a="deny">Don't</button></div>`;
-    card.querySelector('.perm-actions').onclick = (e) => { const a = e.target.dataset.a; if (!a) return; const value = card.querySelector('input')?.value; if (a !== 'deny' && req.toolName === 'vault_request' && !value) return; wsSend({ type: 'permission', botId: state.botId, id: req.id, allow: a !== 'deny', always: a === 'always', value }); card.classList.add('answered'); card.querySelector('.perm-title').textContent += a === 'deny' ? ' — not approved' : a === 'always' ? ' — always allowed' : ' — approved'; };
+      : `<div class="perm-title">🔑 ${who} needs a credential: <b>${esc(req.input.name)}</b></div><p class="reason">${esc(req.input.why || '')}</p><div class="perm-actions"><button class="pill primary" data-a="add">Add it securely…</button><button class="pill" data-a="deny">Don't</button></div>`;
+    card.querySelector('.perm-actions').onclick = async (e) => { let a = e.target.dataset.a; if (!a) return; let value;
+      if (a === 'add') { value = await vaultSheet(req.input); if (value == null) return; a = 'once'; } wsSend({ type: 'permission', botId: state.botId, id: req.id, allow: a !== 'deny', always: a === 'always', value }); card.classList.add('answered'); card.querySelector('.perm-title').textContent += a === 'deny' ? ' — not approved' : a === 'always' ? ' — always allowed' : ' — approved'; };
     t.el.appendChild(card); if (t.textEl) t.el.appendChild(t.textEl); scrollBottom(); return;
   }
   const [verb, arg] = describeTool(req.toolName, req.input);
@@ -1201,3 +1202,38 @@ document.addEventListener('keydown', (e) => {
   const ta = e.target.closest?.('.dec-other textarea'); if (!ta) return;
   e.preventDefault(); ta.closest('.dec-other').querySelector('[data-send]')?.click();
 });
+
+
+// ---- credential sheet: full screen, one labeled box per value, multi-line keys keep their line breaks, Paste and file buttons.
+function vaultSheet({ name, why, fields }) {
+  const list = fields?.length ? fields : [{ label: 'Value', multiline: true }];
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog'); dlg.className = 'sheet vault-sheet';
+    dlg.innerHTML = `<div class="vs-head"><b>🔑 ${esc(name)}</b><button type="button" class="vs-x" aria-label="Cancel">✕</button></div>${why ? `<p class="vs-why">${esc(why)}</p>` : ''}
+      ${list.map((f, i) => `<div class="vs-field"><div class="vs-label"><span>${esc(f.label)}</span><span class="vs-tools"><button type="button" class="vs-tool" data-paste="${i}">Paste</button>${f.multiline ? `<button type="button" class="vs-tool" data-file="${i}">File…</button>` : ''}<button type="button" class="vs-tool" data-eye="${i}">Show</button></span></div><textarea class="vs-input masked${f.multiline ? ' multi' : ''}" data-i="${i}" rows="${f.multiline ? 5 : 1}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${f.multiline ? 'Paste the whole thing, line breaks are kept' : 'Paste it here'}"></textarea></div>`).join('')}
+      <p class="vs-note">Saved to your vault on this Mac and given to this Bot only. Never shown in the chat.</p>
+      <div class="vs-actions"><button type="button" class="pill primary" data-save>Save to vault</button><button type="button" class="pill" data-cancel>Cancel</button></div>
+      <input type="file" class="hidden" data-picker>`;
+    document.body.appendChild(dlg);
+    const boxes = [...dlg.querySelectorAll('.vs-input')], picker = dlg.querySelector('[data-picker]');
+    const grow = (t) => { if (!t.classList.contains('multi')) { t.value = t.value.replace(/\r?\n/g, ''); } t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, window.innerHeight * 0.4) + 'px'; };
+    boxes.forEach((t) => t.addEventListener('input', () => grow(t)));
+    let fileFor = null;
+    picker.onchange = async () => { const f = picker.files?.[0]; if (f && fileFor) { fileFor.value = (await f.text()).trim(); grow(fileFor); } picker.value = ''; };
+    const finish = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
+    dlg.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.paste != null) { const t = boxes[+b.dataset.paste]; try { t.value = (await navigator.clipboard.readText()).trim(); grow(t); } catch { t.focus(); b.textContent = 'Use ⌘V / long-press'; } }
+      else if (b.dataset.file != null) { fileFor = boxes[+b.dataset.file]; picker.click(); }
+      else if (b.dataset.eye != null) { const t = boxes[+b.dataset.eye]; t.classList.toggle('masked'); b.textContent = t.classList.contains('masked') ? 'Show' : 'Hide'; }
+      else if (b.hasAttribute('data-cancel') || b.classList.contains('vs-x')) finish(null);
+      else if (b.hasAttribute('data-save')) {
+        const vals = boxes.map((t) => t.classList.contains('multi') ? t.value.replace(/\r\n/g, '\n').trim() : t.value.trim());
+        const empty = vals.findIndex((v) => !v); if (empty >= 0) { boxes[empty].focus(); boxes[empty].classList.add('need'); return; }
+        finish(fields?.length ? JSON.stringify(Object.fromEntries(list.map((f, i) => [f.label, vals[i]])), null, 1) : vals[0]);
+      }
+    };
+    dlg.showModal(); setTimeout(() => boxes[0].focus(), 50);
+  });
+}

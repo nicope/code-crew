@@ -485,3 +485,21 @@ li > .inline-media, li .inline-media { display: flex; }
 
 .msg-menu .unread-dot { width: 8px; height: 8px; margin: 0 4px 0 3px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .msg-menu .mm-bold { font-weight: 700; }
+
+/* credential sheet */
+.vault-sheet { display: flex; flex-direction: column; gap: 10px; }
+.vault-sheet:not([open]) { display: none; }
+.vs-head { display: flex; align-items: center; justify-content: space-between; font-size: 16px; padding-top: 4px; }
+.vs-x { background: none; border: 0; color: var(--muted); font-size: 16px; padding: 6px 8px; cursor: pointer; }
+.vs-why { margin: 0; color: var(--muted); font-size: 14px; }
+.vs-field { display: flex; flex-direction: column; gap: 5px; }
+.vs-label { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 600; }
+.vs-tools { display: flex; gap: 6px; }
+.vs-tool { background: var(--raised-2); border: 0; color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.vs-input { width: 100%; box-sizing: border-box; resize: none; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 10px 12px; font-family: var(--mono); font-size: 16px; line-height: 1.35; }
+.vs-input.multi { font-size: 13px; min-height: 7.5em; }
+.vs-input.masked { -webkit-text-security: disc; }
+.vs-input.need { border-color: var(--danger); }
+.vs-note { margin: 0; font-size: 12px; color: var(--faint); }
+.vs-actions { display: flex; gap: 8px; } .vs-actions .pill { margin: 0; flex: 1; padding: 11px; }
+@media (max-width: 760px) { .vault-sheet { height: var(--vh, 100dvh); max-height: var(--vh, 100dvh); border-radius: 0; margin: 0; width: 100vw; padding-top: calc(10px + var(--safe-t, 0px)); } }
