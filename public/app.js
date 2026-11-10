@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -98,8 +98,11 @@ const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" ar
 const setAvatar = (el, bot) => { el.innerHTML = avatarSvg(bot.shape, bot.color, bot.name); };
 
 // ---- state ----
-const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, decisions: [], reactions: {}, dirs: [], defaultDir: '' };
-const currentBot = () => state.bots.find((b) => b.id === state.botId);
+const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, decisions: [], reactions: {}, threads: [], pendingThread: null, dirs: [], defaultDir: '' };
+const threadById = (id) => state.threads.find((t) => t.id === id);
+// A thread is shown as its Bot (same avatar), titled with the thread's auto title and TL;DR.
+function threadView(t) { const p = t && state.bots.find((b) => b.id === t.threadOf); return p && { ...p, id: t.id, isThread: true, threadOf: p.id, parentName: p.name, name: t.title || 'New thread', label: t.tldr || `Thread with ${p.name}`, busy: t.busy, pendingApprovals: t.pendingApprovals, thread: t }; }
+const currentBot = () => state.bots.find((b) => b.id === state.botId) || threadView(threadById(state.botId));
 
 // ---- websocket ----
 function connect() {
@@ -133,7 +136,7 @@ window.addEventListener('pageshow', checkLink); window.addEventListener('focus',
 const wsSend = (o) => state.ws?.readyState === 1 && state.ws.send(JSON.stringify(o));
 
 function handle(m) {
-  if (m.type === 'bots') { const before = pendingTotal(); state.bots = m.bots; state.decisions = m.decisions || []; renderBots(); renderDecisions(); updateHead(); if (pendingTotal() > before) alertUser(); return; }
+  if (m.type === 'bots') { const before = pendingTotal(); state.bots = m.bots; state.decisions = m.decisions || []; state.threads = m.threads || state.threads; renderBots(); renderDecisions(); updateHead(); paintThreadChips(); if (currentBot()?.isThread) paintThreadRoot(); if (pendingTotal() > before) alertUser(); return; }
   if (m.type === 'bot_deleted') { if (m.botId === state.botId) showNoBot(); return; }
   if (m.botId && m.botId !== state.botId) return; // another bot's stream
   switch (m.type) {
@@ -144,6 +147,7 @@ function handle(m) {
       for (const msg of m.live || []) onSdk(msg);
       for (const req of m.pending || []) showPermission(req);
       setBusy(!!m.busy);
+      paintThreadRoot(); paintThreadChips();
       if (!(m.messages || []).length && !(m.live || []).length) showNewBotIntro();
       state.stick = true; scrollBottom(true);
       break;
@@ -153,6 +157,7 @@ function handle(m) {
     case 'reactions': state.reactions[m.key] = m.list; document.querySelectorAll(`.reactions[data-key="${CSS.escape(m.key)}"]`).forEach((r) => paintReactions(r, m.key)); break;
     case 'permission_resolved': { const c = document.querySelector(`.perm[data-id="${m.id}"]`); if (c && !c.classList.contains('answered')) { c.classList.add('answered'); c.querySelector('.perm-title').textContent += m.behavior === 'allow' ? ' — allowed' : ' — not approved'; } break; }
     case 'error': ensureTurn(); addError(m.error); break;
+    case 'thread_created': if (state.awaitThread && m.nonce === state.awaitThread) { state.awaitThread = null; openBot(m.id); } break;
   }
 }
 
@@ -189,6 +194,7 @@ function finishTurn(result) {
   if (t.stepCount === 0 && !t.steps.children.length) t.activity.remove();
   else { const steps = `${t.stepCount} step${t.stepCount === 1 ? '' : 's'}`; const dur = result ? fmtDur(result.duration_ms) : state.replaying ? null : fmtDur(Date.now() - t.started); t.sumText.textContent = dur ? `Worked for ${dur} · ${steps}` : steps; }
   for (const s of t.steps.querySelectorAll('.step.running')) s.classList.remove('running');
+  if (t.uuid) t.el.dataset.key = t.uuid;
   if (t.textEl?.dataset.raw && !t.el.querySelector(':scope > .msg-actions')) addMsgActions(t.el, { raw: t.textEl.dataset.raw, key: t.uuid, md: t.textEl });
   state.turn = null;
 }
@@ -350,6 +356,7 @@ function addUserBubble(text) {
     if (from) setAvatar(el.querySelector('.avatar'), from); else el.querySelector('.avatar').remove();
     els.thread.appendChild(el); return;
   }
+  text = text.replace(/\n*\[thread:[0-9a-f-]+(?: — replying to: "[\s\S]*")?\]\s*$/, '');
   let fromChat = null;
   if ((m = text.match(/^\[Mentioned by the user in Bot "([^"]+)"'s conversation\]\n?([\s\S]*)$/))) { fromChat = m[1]; text = m[2]; }
   let files = [];
@@ -372,7 +379,7 @@ function replayHistory(messages) {
       if (typeof content === 'string' || (Array.isArray(content) && content.some((b) => b.type === 'text'))) {
         const text = typeof content === 'string' ? content : content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
         if (/^<(local-command|command-name|system-reminder|bash-input)/.test(text.trim())) continue;
-        finishTurn(); addUserBubble(text);
+        finishTurn(); addUserBubble(text); const last = els.thread.lastElementChild; if (m.uuid && last?.classList.contains('user')) last.dataset.key = m.uuid;
       }
       if (Array.isArray(content)) onUserMsg(m);
     } else if (m.type === 'assistant') { onAssistant(m.message); if (state.turn && m.uuid) state.turn.uuid = m.uuid; }
@@ -388,6 +395,12 @@ function send(text) {
   const heard = state.attachments.filter((a) => a.transcript && !text.includes(a.transcript)).map((a) => `[Transcript of ${a.name}]\n${a.transcript}`);
   if (heard.length) text = [text, ...heard].filter(Boolean).join('\n\n');
   if ((!text && !files.length) || !state.botId) return;
+  if (state.pendingThread && !currentBot()?.isThread) {
+    const pt = state.pendingThread, nonce = Math.random().toString(36).slice(2);
+    state.awaitThread = nonce; state.pendingThread = null; renderThreadBar();
+    wsSend({ type: 'thread_start', botId: state.botId, text: `${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim(), rootKey: pt.rootKey, rootText: pt.rootText, nonce });
+    els.input.value = ''; autosize(); state.attachments = []; renderAttachments(); return;
+  }
   hideEmpties(); finishTurn(); addUserBubble(`${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim());
   els.input.value = ''; autosize(); setBusy(true); state.attachments = []; renderAttachments();
   wsSend({ type: 'send', botId: state.botId, text, attachments: files }); ensureTurn();
@@ -468,7 +481,7 @@ function renderBots() {
   sorted.forEach((b, i) => {
     let row = rows.get(b.id); rows.delete(b.id);
     if (!row) { row = document.createElement('button'); row.className = 'bot-row'; row.dataset.id = b.id; row.innerHTML = '<span class="avatar"></span><span class="bot-text"><span class="bot-name"></span><span class="bot-sub"></span></span><span class="bot-right"></span>'; row.onclick = () => openBot(row.dataset.id); }
-    row.classList.toggle('active', b.id === state.botId);
+    row.classList.toggle('active', b.id === state.botId || b.id === threadById(state.botId)?.threadOf);
     const av = `${b.shape}|${b.color}|${b.name}`; if (row.dataset.av !== av) { setAvatar(row.querySelector('.avatar'), b); row.dataset.av = av; }
     const put = (sel, html) => { const el = row.querySelector(sel); if (el.innerHTML !== html) el.innerHTML = html; };
     put('.bot-name', esc(b.name));
@@ -482,12 +495,16 @@ function renderBots() {
 function updateHead() {
   const b = currentBot();
   if (!b) { els.headName.textContent = 'Pick a Bot'; els.headLabel.textContent = ''; els.headAvatar.innerHTML = ''; els.headState.textContent = ''; return; }
-  els.headName.textContent = b.name; els.headLabel.textContent = b.label || ''; setAvatar(els.headAvatar, b);
+  els.headName.textContent = b.isThread ? `🧵 ${b.name}` : b.name; els.headLabel.textContent = b.isThread ? `${b.parentName} · ${b.label}` : b.label || ''; setAvatar(els.headAvatar, b.isThread ? { ...b, name: b.parentName } : b);
+  els.btnDetails.classList.toggle('hidden', !!b.isThread); els.btnNewThread.classList.toggle('hidden', !!b.isThread);
+  const nThreads = b.isThread ? 0 : state.threads.filter((t) => t.threadOf === b.id).length;
+  els.btnThreads.classList.toggle('hidden', !nThreads); els.threadCount.textContent = nThreads || '';
   els.headState.textContent = b.busy ? 'Working…' : b.pendingApprovals ? 'Waiting for your approval' : '';
 }
 function openBot(id) {
   if (state.botId && state.botId !== id) wsSend({ type: 'unsubscribe' });
   state.botId = id; localStorage.setItem('botId', id);
+  if (state.pendingThread) { state.pendingThread = null; renderThreadBar(); }
   els.app.classList.add('show-chat'); els.composerWrap.classList.remove('hidden');
   resetThread(); renderBots(); updateHead();
   wsSend({ type: 'subscribe', botId: id });
@@ -563,7 +580,8 @@ els.btnStop.onclick = () => wsSend({ type: 'interrupt', botId: state.botId });
 els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.innerWidth > 760) { e.preventDefault(); send(); } });
 els.input.addEventListener('input', autosize);
 els.btnNewBot.onclick = openCreate; els.btnNewBot2.onclick = openCreate;
-els.btnBack.onclick = () => { els.app.classList.remove('show-chat'); };
+function goBack() { const t = threadById(state.botId); if (t) openBot(t.threadOf); else els.app.classList.remove('show-chat'); }
+els.btnBack.onclick = goBack;
 els.botHead.onclick = openDrawer; els.btnDetails.onclick = openDrawer; els.btnCloseDrawer.onclick = closeDrawer; els.scrim.onclick = closeDrawer;
 document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); openCreate(); } if (e.key === 'Escape') closeDrawer(); });
 
@@ -575,9 +593,9 @@ document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.
   try { state.mediaKey = (await api('/api/media-key')).key || ''; } catch {}
   setupNotifications();
   connect();
-  const { bots } = await api('/api/bots'); state.bots = bots; renderBots();
+  const { bots, threads } = await api('/api/bots'); state.bots = bots; state.threads = threads || []; renderBots();
   const remembered = new URLSearchParams(location.search).get('bot') || localStorage.getItem('botId');
-  const wanted = bots.find((b) => b.id === remembered || b.name.toLowerCase() === String(remembered).toLowerCase());
+  const wanted = bots.find((b) => b.id === remembered || b.name.toLowerCase() === String(remembered).toLowerCase()) || state.threads.find((t) => t.id === remembered);
   if ((window.innerWidth > 760 && bots.length) || (wanted && new URLSearchParams(location.search).get('bot'))) openBot(wanted?.id || bots[0].id);
   else { els.composerWrap.classList.add('hidden'); els.emptyNoBot.classList.remove('hidden'); }
 })();
@@ -786,7 +804,7 @@ els.btnRecCancel.onclick = () => { stopVoice(); };
     if (mode !== 'swipe') return; mode = null;
     const fast = dx > 40 && dx / Math.max(1, Date.now() - st) > 0.5, go = dx > window.innerWidth * 0.33 || fast;
     main.style.transition = 'transform .18s ease-out'; main.style.transform = go ? `translateX(${window.innerWidth}px)` : '';
-    setTimeout(() => { main.style.transition = ''; main.style.transform = ''; els.app.classList.remove('swiping'); if (go) els.app.classList.remove('show-chat'); }, 190);
+    setTimeout(() => { main.style.transition = ''; main.style.transform = ''; els.app.classList.remove('swiping'); if (go) goBack(); }, 190);
   };
   main.addEventListener('touchend', end); main.addEventListener('touchcancel', end);
 })();
@@ -962,19 +980,22 @@ const ICONS = {
   react: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg>',
   reply: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></svg>',
   more: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+  thread: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 13.5h4.5"/></svg>',
   copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
 };
 function addMsgActions(el, { raw, key, md, user }) {
   if (key) { const r = document.createElement('div'); r.className = 'reactions'; r.dataset.key = key; el.appendChild(r); paintReactions(r, key); }
   const bar = document.createElement('div'); bar.className = 'msg-actions';
-  bar.innerHTML = `${key ? `<button data-a="react" title="React">${ICONS.react}</button>` : ''}<button data-a="reply" title="Reply">${ICONS.reply}</button><button data-a="more" title="More">${ICONS.more}</button>`;
+  const inThread = !!currentBot()?.isThread;
+  bar.innerHTML = `${key ? `<button data-a="react" title="React">${ICONS.react}</button>` : ''}<button data-a="reply" title="Reply (quote)">${ICONS.reply}</button>${inThread ? '' : `<button data-a="thread" title="Reply in thread">${ICONS.thread}</button>`}<button data-a="more" title="More">${ICONS.more}</button>`;
   bar.onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
     if (b.dataset.a === 'reply') return quoteReply(raw);
+    if (b.dataset.a === 'thread') { const open = state.threads.find((t) => t.threadOf === state.botId && (key || el.dataset.key) && t.rootKey === (key || el.dataset.key)); return open ? openBot(open.id) : startThread(key || el.dataset.key || null, (md || el.querySelector('.bubble'))?.innerText.trim() || raw); }
     const plain = () => (md || el.querySelector('.bubble'))?.innerText.trim() || raw;
     const items = b.dataset.a === 'react'
       ? REACTIONS.map((x) => ({ emoji: x, run: () => wsSend({ type: 'react', botId: state.botId, key, emoji: x }) }))
-      : [{ label: 'Copy', run: () => copyText(raw) }, ...(md ? [{ label: 'Copy as plain text', run: () => copyText(plain()) }] : []), ...(key ? [{ label: 'Copy message ID', run: () => copyText(key) }] : [])];
+      : [{ label: 'Copy', copy: true, run: () => copyText(raw) }, ...(md ? [{ label: 'Copy as plain text', copy: true, run: () => copyText(plain()) }] : []), ...(key ? [{ label: 'Copy message ID', copy: true, run: () => copyText(key) }] : [])];
     openMsgMenu(b, items, b.dataset.a === 'react');
   };
   el.appendChild(bar);
@@ -989,11 +1010,11 @@ function closeMsgMenu() { msgMenu?.remove(); msgMenu = null; }
 function openMsgMenu(anchor, items, emojis) {
   closeMsgMenu();
   msgMenu = document.createElement('div'); msgMenu.className = 'msg-menu' + (emojis ? ' emojis' : '');
-  msgMenu.innerHTML = items.map((it, i) => `<button data-i="${i}">${emojis ? it.emoji : `${ICONS.copy}<span>${esc(it.label)}</span>`}</button>`).join('');
+  msgMenu.innerHTML = items.map((it, i) => `<button data-i="${i}">${emojis ? it.emoji : `${it.icon ?? ICONS.copy}<span class="mm-text"><span>${esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span>`}</button>`).join('');
   msgMenu.onclick = async (e) => {
     const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
     const it = items[+b.dataset.i]; const ok = await it.run();
-    if (!emojis && ok !== false) { try { navigator.vibrate?.(15); } catch {} b.querySelector('span').textContent = 'Copied'; setTimeout(closeMsgMenu, 450); } else closeMsgMenu();
+    if (it.copy && ok !== false) { try { navigator.vibrate?.(15); } catch {} b.querySelector('.mm-text span').textContent = 'Copied'; setTimeout(closeMsgMenu, 450); } else closeMsgMenu();
   };
   document.body.appendChild(msgMenu);
   const a = anchor.getBoundingClientRect(), w = msgMenu.offsetWidth, h = msgMenu.offsetHeight;
@@ -1013,3 +1034,40 @@ function quoteReply(raw) {
   autosize(); els.input.focus(); els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
   els.input.dispatchEvent(new Event('input'));
 }
+
+
+// ---- threads: a side conversation with the same Bot, branched from a message (or started fresh from the composer).
+function startThread(rootKey, rootText) { state.pendingThread = { rootKey, rootText: rootText || '' }; renderThreadBar(); els.input.focus(); }
+function renderThreadBar() {
+  const pt = state.pendingThread;
+  els.threadBar.classList.toggle('hidden', !pt);
+  els.btnNewThread.classList.toggle('on', !!pt);
+  if (pt) els.threadBarText.innerHTML = pt.rootText ? `🧵 Reply in thread to <span class="muted">“${esc(pt.rootText.replace(/\s+/g, ' ').slice(0, 90))}”</span>` : '🧵 <b>New thread</b> <span class="muted">— your message starts it</span>';
+}
+els.btnNewThread.onclick = () => { if (state.pendingThread) { state.pendingThread = null; renderThreadBar(); } else startThread(null, ''); };
+els.threadBarClose.onclick = () => { state.pendingThread = null; renderThreadBar(); };
+const fmtThreadMeta = (t) => `${t.busy ? 'working… · ' : ''}${t.replies ? `${t.replies} repl${t.replies === 1 ? 'y' : 'ies'}` : 'new'} · ${fmtAgo(t.lastActivity)}`;
+function paintThreadChips() {
+  const b = currentBot(); if (!b || b.isThread) return;
+  els.thread.querySelectorAll('.thread-chip').forEach((c) => c.remove());
+  for (const t of state.threads.filter((x) => x.threadOf === b.id && x.rootKey)) {
+    const anchor = els.thread.querySelector(`.msg[data-key="${CSS.escape(t.rootKey)}"]`); if (!anchor) continue;
+    const chip = document.createElement('button'); chip.className = 'thread-chip' + (t.busy ? ' busy' : '');
+    chip.innerHTML = `<span class="tc-title">🧵 ${esc(t.title || 'Thread')}</span>${t.tldr ? `<span class="tc-tldr">${esc(t.tldr)}</span>` : ''}<span class="tc-meta">${esc(fmtThreadMeta(t))}</span>`;
+    chip.onclick = () => openBot(t.id);
+    const bar = anchor.querySelector(':scope > .msg-actions'); anchor.insertBefore(chip, bar || null);
+  }
+}
+function paintThreadRoot() {
+  els.thread.querySelector('.thread-root')?.remove();
+  const b = currentBot(); if (!b?.isThread) return;
+  const t = b.thread, el = document.createElement('div'); el.className = 'msg thread-root';
+  el.innerHTML = `<div class="tr-card"><div class="tr-kicker">Thread with <b>${esc(b.parentName)}</b> · <button class="tr-back">open main chat</button></div><div class="tr-title">${esc(t.title || 'New thread')}</div>${t.tldr ? `<div class="tr-tldr">TL;DR · ${esc(t.tldr)}</div>` : ''}${t.rootText ? `<div class="tr-root">${esc(t.rootText.slice(0, 400))}${t.rootText.length > 400 ? '…' : ''}</div>` : ''}</div>`;
+  el.querySelector('.tr-back').onclick = () => openBot(t.threadOf);
+  els.thread.insertBefore(el, els.thread.firstChild);
+}
+els.btnThreads.onclick = (e) => {
+  e.stopPropagation();
+  const list = state.threads.filter((t) => t.threadOf === state.botId).sort((a, b) => b.lastActivity - a.lastActivity);
+  openMsgMenu(els.btnThreads, list.map((t) => ({ icon: ICONS.thread, label: t.title || 'New thread', sub: `${t.tldr ? t.tldr + ' · ' : ''}${fmtThreadMeta(t)}`, run: () => openBot(t.id) })));
+};

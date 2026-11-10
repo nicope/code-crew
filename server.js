@@ -174,6 +174,8 @@ const store = { bots: [], routines: [], push: [], decisions: [] };
 try { Object.assign(store, JSON.parse(fs.readFileSync(STORE, 'utf8'))); } catch {}
 for (const b of store.bots) b.turns ||= []; // messages queued or in flight, kept so a restart cannot lose them
 store.decisions ||= [];
+store.threads ||= []; // side conversations with a Bot: { id, threadOf, rootKey, rootText, title, tldr, sessionId, forkFrom, turns, … }
+for (const t of store.threads) t.turns ||= [];
 store.reactions ||= {}; // botId -> { messageUuid: ['👍', …] }, shown under replies; just for the user, not sent to the Bot
 // Decision cards: a Bot asks the user to pick one option; the answer comes back to it as a message. Open cards stay until answered; answered ones are kept two weeks so the chat can show what was decided.
 const REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅', '🙏', '🔥'];
@@ -183,7 +185,8 @@ let saveTimer = null;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.writeFileSync(STORE, JSON.stringify(store, null, 2)), 150); }
 const flush = () => { clearTimeout(saveTimer); fs.writeFileSync(STORE, JSON.stringify(store, null, 2)); };
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flush(); process.exit(0); }); // launchd restarts must not lose a pending save
-const botById = (id) => store.bots.find((b) => b.id === id);
+const botById = (id) => store.bots.find((b) => b.id === id) || store.threads.find((t) => t.id === id); // threads run like Bots
+const realBotById = (id) => store.bots.find((b) => b.id === id);
 const botByName = (name) => store.bots.find((b) => b.name.toLowerCase() === String(name).toLowerCase());
 
 // GitHub repo behind a Bot's folder (origin remote), so "#123" in its replies can link to the pull request. Cached per folder.
@@ -197,7 +200,12 @@ function repoFor(cwd) {
 function publicBot(b) {
   const rt = runtimes.get(b.id);
   const { turns = [], ...pub } = b;
-  return { ...pub, repo: repoFor(b.cwd), busy: !!rt?.busy || turns.length > 0, queued: turns.length, pendingApprovals: rt ? rt.pending.size : 0, routines: store.routines.filter((r) => r.botId === b.id).length };
+  const threads = store.threads.filter((t) => t.threadOf === b.id), trt = threads.map((t) => runtimes.get(t.id)).filter(Boolean);
+  return { ...pub, repo: repoFor(b.cwd), busy: !!rt?.busy || turns.length > 0 || threads.some((t) => t.turns.length) || trt.some((r) => r.busy), queued: turns.length, pendingApprovals: (rt ? rt.pending.size : 0) + trt.reduce((n, r) => n + r.pending.size, 0), routines: store.routines.filter((r) => r.botId === b.id).length };
+}
+function publicThread(t) {
+  const rt = runtimes.get(t.id);
+  return { id: t.id, threadOf: t.threadOf, rootKey: t.rootKey || null, rootText: t.rootText || '', title: t.title || '', tldr: t.tldr || '', replies: t.replies || 0, busy: !!rt?.busy || t.turns.length > 0, pendingApprovals: rt ? rt.pending.size : 0, unread: !!t.unread, createdAt: t.createdAt, lastActivity: t.lastActivity };
 }
 
 if (store.bots.length === 0) {
@@ -208,7 +216,7 @@ if (store.bots.length === 0) {
 // ---------------------------------------------------------------- bot runtimes
 const runtimes = new Map();      // botId -> BotRuntime
 const sockets = new Set();       // all websocket clients
-const botsPayload = () => ({ type: 'bots', bots: store.bots.map(publicBot), decisions: visibleDecisions() });
+const botsPayload = () => ({ type: 'bots', bots: store.bots.map(publicBot), threads: store.threads.map(publicThread), decisions: visibleDecisions() });
 const broadcastBots = () => { const payload = JSON.stringify(botsPayload()); for (const ws of sockets) if (ws.readyState === 1) ws.send(payload); };
 
 function makeInbox() {
@@ -286,7 +294,8 @@ class BotRuntime {
 
   ensureStarted() {
     if (this.query) return;
-    const bot = this.bot;
+    const thread = this.bot.threadOf ? this.bot : null;
+    const bot = thread ? (realBotById(thread.threadOf) || this.bot) : this.bot; // a thread works as its Bot: same folder, model, tools, memory
     this.inbox = makeInbox(); this.abort = new AbortController();
     const opts = {
       cwd: bot.cwd || DEFAULT_CWD,
@@ -297,14 +306,15 @@ class BotRuntime {
       abortController: this.abort,
       additionalDirectories: [MEMORY_DIR],
       env: childEnv(),
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: identityPrompt(bot) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: identityPrompt(bot) + (thread ? `\n# This conversation is a thread\nYou are in a side thread with the user${thread.title ? ` titled "${thread.title}"` : ''}. It branched off your main conversation${thread.rootText ? ` from this message: "${thread.rootText.slice(0, 300)}"` : ''}. Stay on this topic; the main conversation continues separately. Messages from other Bots arrive in your main conversation, not here.` : '') },
       mcpServers: { bots: botsMcpServer(bot), vault: vaultMcpServer(this), ...connectorServers(bot).servers },
       allowedTools: ['mcp__bots__message_bot', 'mcp__bots__list_bots', 'mcp__bots__decision_card', 'mcp__vault', ...connectorServers(bot).allowed],
       canUseTool: (toolName, input, { suggestions, signal }) => this.askPermission(toolName, input, suggestions, signal),
       hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob|Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [protectSecretsHookFor(bot)] }] },
     };
     opts.allowDangerouslySkipPermissions = true; // needed so a Bot can be switched to "Never ask" while running
-    if (bot.sessionId) opts.resume = bot.sessionId;
+    if (this.bot.sessionId) opts.resume = this.bot.sessionId;
+    else if (thread?.forkFrom) { opts.resume = thread.forkFrom; opts.forkSession = true; } // start with the main conversation's context, then branch
     this.query = query({ prompt: this.inbox, options: opts });
     this.pump();
   }
@@ -360,9 +370,11 @@ class BotRuntime {
     else if (lastText) this.bot.preview = lastText.replace(/\s+/g, ' ').slice(0, 140);
     if (this.needsRestart && !this.busy) { this.needsRestart = false; setTimeout(() => !this.busy && this.restart(), 50); }
     if (lastText) this.lastReplyText = lastText;
+    if (this.bot.threadOf && lastText) { const t = this.bot; t.replies = (t.replies || 0) + 1; if (t.replies <= 2 || t.replies % 3 === 0) summarizeThread(t, lastText); }
     if (this.subscribers.size === 0 && !this.busy) { // queued or folded turns still running: wait for the real end
       this.bot.unread = true;
-      notify({ title: `${this.bot.name} finished`, body: this.lastReplyText || 'Open to see the result.', tag: `bot-${this.bot.id}`, url: `/?bot=${this.bot.id}` });
+      const who = this.bot.threadOf ? `${realBotById(this.bot.threadOf)?.name || 'Bot'} · ${this.bot.title || 'thread'}` : this.bot.name;
+      notify({ title: `${who} finished`, body: this.lastReplyText || 'Open to see the result.', tag: `bot-${this.bot.id}`, url: `/?bot=${this.bot.id}` });
       this.lastReplyText = '';
     }
     save(); broadcastBots(); this.scheduleIdle();
@@ -452,6 +464,18 @@ function protectSecretsHookFor(bot) {
     if (!hit) return {};
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Blocked by Code Crew: this touches its own secrets (${hit}). Use the vault_get / connector tools instead.` } };
   };
+}
+// Title + one-line TL;DR for a thread, written by a small model from the root message, the first request and the latest reply.
+async function summarizeThread(t, latest = '') {
+  const prompt = `Label this work thread.\n\nIt started from this message:\n${(t.rootText || '(a new topic)').slice(0, 1500)}\n\nThe user's first request in the thread:\n${(t.firstText || '').slice(0, 1500)}\n${latest ? `\nThe latest reply in the thread:\n${latest.slice(0, 2000)}\n` : ''}\nReply with JSON only: {"title": "3 to 7 words, like a task name", "tldr": "one sentence under 120 characters: what the thread is about and where it stands now"}. Use the language the user wrote in.`;
+  try {
+    let out = '';
+    for await (const m of query({ prompt, options: { model: 'haiku', maxTurns: 1, settingSources: [], allowedTools: [], canUseTool: async () => ({ behavior: 'deny', message: 'No tools here.' }), env: childEnv(), cwd: DATA_DIR, systemPrompt: 'You write short labels for work threads. Output JSON only.' } })) if (m.type === 'result') out = m.result || '';
+    const j = JSON.parse((out.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    if (j.title) t.title = String(j.title).slice(0, 80);
+    if (j.tldr) t.tldr = String(j.tldr).slice(0, 200);
+    save(); broadcastBots();
+  } catch (e) { console.error('thread summary failed', e.message); }
 }
 const getRuntime = (id) => { let rt = runtimes.get(id); if (!rt) { const bot = botById(id); if (!bot) throw new Error('No such bot'); rt = new BotRuntime(bot); runtimes.set(id, rt); } return rt; };
 
@@ -649,7 +673,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/push/subscribe' && req.method === 'DELETE') { const { endpoint } = await readBody(req); store.push = (store.push || []).filter((s) => s.endpoint !== endpoint); save(); return json(res, 200, { ok: true }); }
     if (p === '/api/push/test' && req.method === 'POST') { await notify({ title: 'Bots', body: 'Notifications are working.', tag: 'test', url: '/' }); return json(res, 200, { ok: true, subscribers: store.push.length }); }
-    if (p === '/api/bots' && req.method === 'GET') return json(res, 200, { bots: store.bots.map(publicBot) });
+    if (p === '/api/bots' && req.method === 'GET') return json(res, 200, { bots: store.bots.map(publicBot), threads: store.threads.map(publicThread) });
     if (p === '/api/bots' && req.method === 'POST') {
       const b = await readBody(req);
       const bot = { id: randomUUID(), name: clean(b.name, 40) || 'New Bot', label: clean(b.label, 60), shape: clean(b.shape, 20) || 'circle', color: /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#6fb3ff', cwd: clean(b.cwd, 400), model: clean(b.model, 40) || DEFAULT_MODEL, permissionMode: PERMISSION_MODES.includes(b.permissionMode) ? b.permissionMode : DEFAULT_PERMISSION, sessionId: null, createdAt: Date.now(), lastActivity: Date.now(), unread: false };
@@ -719,7 +743,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === 'DELETE') {
         runtimes.get(bot.id)?.destroy(); runtimes.delete(bot.id);
-        store.bots = store.bots.filter((x) => x.id !== bot.id); store.routines = store.routines.filter((r) => r.botId !== bot.id);
+        store.bots = store.bots.filter((x) => x.id !== bot.id); store.routines = store.routines.filter((r) => r.botId !== bot.id); for (const t of store.threads.filter((x) => x.threadOf === bot.id)) { runtimes.get(t.id)?.destroy(); runtimes.delete(t.id); } store.threads = store.threads.filter((x) => x.threadOf !== bot.id);
         const mem = path.join(MEMORY_DIR, bot.id + '.md'); if (fs.existsSync(mem)) fs.renameSync(mem, path.join(DATA_DIR, 'trash', `${bot.id}-${Date.now()}.md`));
         save(); broadcastBots();
         return json(res, 200, { ok: true });
@@ -785,6 +809,7 @@ wss.on('connection', (ws, req) => {
           current = getRuntime(bot.id); current.subscribe(ws);
           let messages = [];
           if (bot.sessionId) { try { messages = await getSessionMessages(bot.sessionId, { dir: bot.cwd }); } catch {} if (!messages.length) { try { messages = await getSessionMessages(bot.sessionId); } catch {} } }
+          if (bot.threadOf) { const i = messages.findIndex((x) => x.type === 'user' && JSON.stringify(x.message?.content || '').includes(`[thread:${bot.id}`)); messages = i >= 0 ? messages.slice(i) : []; if (!messages.length && bot.turns.length) messages = bot.turns.map((t) => ({ type: 'user', message: { role: 'user', content: t.text } })); } // a forked session also holds the main conversation
           reply({ type: 'history', botId: bot.id, messages, live: current.turnBuffer, busy: current.busy, pending: [...current.pending.values()].map((p) => p.req), reactions: store.reactions[bot.id] || {} });
           break;
         }
@@ -807,6 +832,17 @@ wss.on('connection', (ws, req) => {
           list.has(emoji) ? list.delete(emoji) : list.add(emoji);
           if (list.size) map[key] = [...list]; else delete map[key];
           save(); runtimes.get(bot.id)?.broadcast({ type: 'reactions', botId: bot.id, key, list: map[key] || [] });
+          break;
+        }
+        case 'thread_start': {
+          const parent = realBotById(bot.id); if (!parent) break;
+          const text = String(m.text || '').slice(0, 100000).trim(); if (!text) break;
+          const rootText = String(m.rootText || '').replace(/\n\[Attached files\][\s\S]*$/, '').slice(0, 2000);
+          const t = { id: randomUUID(), threadOf: parent.id, rootKey: m.rootKey ? String(m.rootKey).slice(0, 64) : null, rootText, firstText: text.slice(0, 2000), title: '', tldr: '', name: parent.name, cwd: parent.cwd, sessionId: null, forkFrom: parent.sessionId || null, turns: [], replies: 0, createdAt: Date.now(), lastActivity: Date.now(), unread: false };
+          store.threads.push(t); save();
+          reply({ type: 'thread_created', id: t.id, nonce: m.nonce || null });
+          getRuntime(t.id).enqueue(`${text}\n\n[thread:${t.id}${rootText ? ` — replying to: "${rootText.slice(0, 300).replace(/\s+/g, ' ')}"` : ''}]`, { origin: 'user' });
+          summarizeThread(t);
           break;
         }
         case 'decide': {
