@@ -2,8 +2,8 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', (e) => {
-  let d = {}; try { d = e.data.json(); } catch { d = { title: 'Bots', body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Bots', { body: d.body || '', tag: d.tag, renotify: true, data: d, icon: '/icon-180.png', badge: '/icon-180.png' }));
+  let d = {}; try { d = e.data.json(); } catch { d = { title: 'Code Crew', body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Code Crew', { body: d.body || '', tag: d.tag, renotify: true, data: d, icon: '/icon-180.png', badge: '/icon-180.png' }));
 });
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
