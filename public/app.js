@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread','threadPanel','threadFrame'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread','threadPanel','threadFrame','alsoMainWrap','alsoMain'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -157,6 +157,7 @@ function handle(m) {
     case 'reactions': state.reactions[m.key] = m.list; document.querySelectorAll(`.reactions[data-key="${CSS.escape(m.key)}"]`).forEach((r) => paintReactions(r, m.key)); break;
     case 'permission_resolved': { const c = document.querySelector(`.perm[data-id="${m.id}"]`); if (c && !c.classList.contains('answered')) { c.classList.add('answered'); c.querySelector('.perm-title').textContent += m.behavior === 'allow' ? ' — allowed' : ' — not approved'; } break; }
     case 'error': ensureTurn(); addError(m.error); break;
+    case 'user_message': if (!state.replaying) { finishTurn(); addUserBubble(m.text); scrollBottom(); } break;
     case 'thread_created': if (state.awaitThread && m.nonce === state.awaitThread) { state.awaitThread = null; openBot(m.id); } break;
   }
 }
@@ -357,7 +358,8 @@ function addUserBubble(text) {
     els.thread.appendChild(el); return;
   }
   text = text.replace(/\n*\[thread:[0-9a-f-]+(?: — replying to: "[\s\S]*")?\]\s*$/, '');
-  let fromChat = null;
+  let fromChat = null, fromThread = null;
+  if ((m = text.match(/^\[From your thread "([^"]*)"\]\n([\s\S]*)$/))) { fromThread = m[1]; text = m[2]; }
   if ((m = text.match(/^\[Mentioned by the user in Bot "([^"]+)"'s conversation\]\n?([\s\S]*)$/))) { fromChat = m[1]; text = m[2]; }
   let files = [];
   if ((m = text.match(/^([\s\S]*?)\n*\[Attached files\]\n([\s\S]*)$/))) { text = m[1].trim(); files = m[2].split('\n').map((l) => l.replace(/^- /, '').trim()).filter(Boolean); }
@@ -365,7 +367,7 @@ function addUserBubble(text) {
   const rawText = text; let quote = '';
   if ((m = text.match(/^((?:> ?[^\n]*\n?)+)\n*([\s\S]*)$/))) { quote = m[1].replace(/^> ?/gm, '').trim(); text = m[2]; }
   const isMedia = (f) => /\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm|m4a|mp3|wav)$/i.test(f);
-  u.innerHTML = `${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${quote ? `<div class="quote">${esc(quote)}</div>` : ''}${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
+  u.innerHTML = `${fromThread ? `<div class="muted small" style="text-align:right;margin-bottom:2px">↳ from thread “${esc(fromThread)}”</div>` : ''}${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${quote ? `<div class="quote">${esc(quote)}</div>` : ''}${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
   addMsgActions(u, { raw: rawText, user: true });
   u.querySelector('.bubble').addEventListener('click', (e) => { if (e.target.closest('a, video, img, .attach') || String(getSelection()).trim()) return; const open = threadFor(u.dataset.key); if (open && !currentBot()?.isThread) openBot(open.id); else u.classList.toggle('show-actions'); });
   els.thread.appendChild(u);
@@ -401,6 +403,8 @@ function send(text) {
     wsSend({ type: 'thread_start', botId: state.botId, text: `${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim(), rootKey: pt.rootKey, rootText: pt.rootText, nonce });
     els.input.value = ''; autosize(); state.attachments = []; renderAttachments(); return;
   }
+  const cb = currentBot();
+  if (cb?.isThread && els.alsoMain.checked && text) { wsSend({ type: 'send', botId: cb.threadOf, text: `[From your thread "${cb.name}"]\n${text}` }); els.alsoMain.checked = false; }
   hideEmpties(); finishTurn(); addUserBubble(`${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim());
   els.input.value = ''; autosize(); setBusy(true); state.attachments = []; renderAttachments();
   wsSend({ type: 'send', botId: state.botId, text, attachments: files }); ensureTurn();
@@ -496,7 +500,7 @@ function updateHead() {
   const b = currentBot();
   if (!b) { els.headName.textContent = 'Pick a Bot'; els.headLabel.textContent = ''; els.headAvatar.innerHTML = ''; els.headState.textContent = ''; return; }
   els.headName.textContent = b.isThread ? `🧵 ${b.name}` : b.name; els.headLabel.textContent = b.isThread ? `${b.parentName} · ${b.label}` : b.label || ''; setAvatar(els.headAvatar, b.isThread ? { ...b, name: b.parentName } : b);
-  els.btnDetails.classList.toggle('hidden', !!b.isThread); els.btnNewThread.classList.toggle('hidden', !!b.isThread);
+  els.btnDetails.classList.toggle('hidden', !!b.isThread); els.alsoMainWrap.classList.toggle('hidden', !b.isThread); els.btnNewThread.classList.toggle('hidden', !!b.isThread);
   const nThreads = b.isThread ? 0 : state.threads.filter((t) => t.threadOf === b.id).length;
   els.btnThreads.classList.toggle('hidden', !nThreads); els.threadCount.textContent = nThreads || '';
   els.headState.textContent = b.busy ? 'Working…' : b.pendingApprovals ? 'Waiting for your approval' : '';

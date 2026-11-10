@@ -274,7 +274,7 @@ function identityPrompt(bot) {
     others.length ? `Other Bots you can message with the message_bot tool: ${others.join('; ')}. Hand off work that fits another Bot's job better, and say so to the user.` : `There are no other Bots yet.`,
     `# Decisions`,
     `When you need the user to choose (merge or hold, A or B, go or no-go), post a decision card with the decision_card tool instead of asking in prose: one decision per card, 2 to 4 short options, your recommendation marked. Don't block on it. The answer arrives as a message starting with [Decision]; act on it.`,
-    `# Messages that start with [Routine: …] are scheduled runs you were given; do the task and report briefly. A message starting with [Mentioned by the user in Bot "X"'s conversation] was typed by the user in another Bot's chat with your @name: do what is asked, then send your answer to Bot X with message_bot so it appears in that conversation, and keep your own reply here to one line. If there is nothing worth saying, reply with one line. Messages that start with [Message from Bot "…"] come from another Bot; act on them and reply to the user, not to the Bot, unless a reply to the Bot is needed.`,
+    `# Messages that start with [Routine: …] are scheduled runs you were given; do the task and report briefly. A message starting with [Mentioned by the user in Bot "X"'s conversation] was typed by the user in another Bot's chat with your @name: do what is asked, then send your answer to Bot X with message_bot so it appears in that conversation, and keep your own reply here to one line. If there is nothing worth saying, reply with one line. A message starting with [From your thread "T"] is the user sharing something from your side thread T into this main conversation; take it into account here. Messages that start with [Message from Bot "…"] come from another Bot; act on them and reply to the user, not to the Bot, unless a reply to the Bot is needed.`,
   ].join('\n');
 }
 
@@ -290,7 +290,7 @@ class BotRuntime {
     this.bot = bot; bot.turns ||= []; this.subscribers = new Set(); this.turnBuffer = []; this.pending = new Map();
     this.busy = false; this.query = null; this.inbox = null; this.abort = null; this.idleTimer = null; this.turnOrigin = 'user';
   }
-  broadcast(obj) { const s = JSON.stringify({ botId: this.bot.id, ...obj }); for (const ws of this.subscribers) if (ws.readyState === 1) ws.send(s); }
+  broadcast(obj, skip = null) { const s = JSON.stringify({ botId: this.bot.id, ...obj }); for (const ws of this.subscribers) if (ws !== skip && ws.readyState === 1) ws.send(s); }
 
   ensureStarted() {
     if (this.query) return;
@@ -380,8 +380,9 @@ class BotRuntime {
     save(); broadcastBots(); this.scheduleIdle();
   }
 
-  enqueue(text, { origin = 'user', resumed = false } = {}) {
+  enqueue(text, { origin = 'user', resumed = false, from = null } = {}) {
     this.ensureStarted();
+    if (!resumed) this.broadcast({ type: 'user_message', text }, from); // other open views show it live; the sender already drew it
     clearTimeout(this.idleTimer);
     this.busy = true; this.turnOrigin = origin; this.bot.lastActivity = Date.now();
     if (origin === 'user') this.bot.unread = false;
@@ -819,7 +820,7 @@ wss.on('connection', (ws, req) => {
           const files = (Array.isArray(m.attachments) ? m.attachments : []).filter((f) => typeof f === 'string' && f.startsWith(path.join(bot.cwd, 'attachments') + path.sep)).slice(0, 20);
           if (files.length) text = `${text}\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}`.trim();
           const mentioned = mentionsIn(text, bot);
-          if (text) getRuntime(bot.id).enqueue(mentioned.length ? `${text}\n\n[The user also addressed this to ${mentioned.map((b) => `Bot "${b.name}"`).join(' and ')}; they received it and will answer you with message_bot. Do your own part only and coordinate instead of duplicating their work.]` : text, { origin: 'user' });
+          if (text) getRuntime(bot.id).enqueue(mentioned.length ? `${text}\n\n[The user also addressed this to ${mentioned.map((b) => `Bot "${b.name}"`).join(' and ')}; they received it and will answer you with message_bot. Do your own part only and coordinate instead of duplicating their work.]` : text, { origin: 'user', from: ws });
           for (const other of mentioned) getRuntime(other.id).enqueue(`[Mentioned by the user in Bot "${bot.name}"'s conversation]\n${text}`, { origin: 'user' });
           break;
         }
