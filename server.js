@@ -257,7 +257,7 @@ function identityPrompt(bot) {
     `# Connected services`,
     connectorServers(bot).described.length ? `The user connected these services for you; use them directly instead of asking for keys: ${connectorServers(bot).described.join('; ')}.` : `No external services are connected yet. The user can connect some (GitHub, Supabase, Vercel, Cloudflare, Stripe, …) from the Connectors screen.`,
     `# Showing files to the user`,
-    `Images, videos, audio and PDFs inside your folder (${bot.cwd || DEFAULT_CWD}) are displayed inline in the chat when you write their absolute path on its own line, or as a markdown image like ![caption](/absolute/path.mp4). Do this whenever you produce or find media worth seeing; the user is often on a phone and cannot open files otherwise. Files outside your folder are not displayed, so copy them in first.`,
+    `Images, videos, audio and PDFs inside your folder (${bot.cwd || DEFAULT_CWD}) are displayed inline in the chat when you write their absolute path on its own line, or as a markdown image like ![caption](/absolute/path.mp4). Do this whenever you produce or find media worth seeing; the user is often on a phone and cannot open files otherwise. Files outside your folder are not displayed${config.sharedMediaDirs.length ? ` (except in ${config.sharedMediaDirs.join(', ')})` : ''}, so copy them in first.`,
     `# Vault`,
     `The user keeps logins and secrets in a vault. When a task needs a credential you do not have (a login for a site, a database password, an API key with no connector), call vault_list to see what exists and vault_get(name, reason) to request it; the user approves each request. If it is not there, vault_request(name, why) asks them to add it. Never ask the user to paste secrets into the chat.`,
     `# Other Bots`,
@@ -660,8 +660,9 @@ const server = http.createServer(async (req, res) => {
     if ((m = p.match(/^\/api\/bots\/([0-9a-f-]+)\/file$/)) && req.method === 'GET') {
       const bot = botById(m[1]); if (!bot) return json(res, 404, { error: 'no such bot' });
       const file = path.resolve(url.searchParams.get('path') || '');
-      let root, real; try { root = fs.realpathSync(bot.cwd); real = fs.realpathSync(file); } catch { return json(res, 404, { error: 'not found' }); }
-      if (real !== root && !real.startsWith(root + path.sep)) return json(res, 403, { error: 'outside the Bot folder' });
+      let real; try { real = fs.realpathSync(file); } catch { return json(res, 404, { error: 'not found' }); }
+      const roots = [bot.cwd, ...config.sharedMediaDirs].flatMap((d) => { try { return [fs.realpathSync(d)]; } catch { return []; } });
+      if (!roots.some((root) => real === root || real.startsWith(root + path.sep))) return json(res, 403, { error: 'outside the Bot folder' });
       const st = fs.statSync(real); if (!st.isFile()) return json(res, 404, { error: 'not a file' });
       const type = FILE_MIME[path.extname(real).toLowerCase()] || 'application/octet-stream';
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');

@@ -40,6 +40,8 @@ export const config = {
   pushSubject: envOr('CODE_CREW_PUSH_SUBJECT', 'CLAUDE_CHAT_PUSH_SUBJECT') || file.pushSubject || 'https://github.com/nicope/code-crew', // Apple rejects placeholder domains (403 BadJwtToken)
   // Folders offered when picking where a Bot works; only the ones that exist are shown.
   dirRoots: file.dirRoots || [HOME, ...['Projects', 'Github', 'GitHub', 'Developer', 'code', 'src', 'repos', 'Documents', 'Desktop'].map((d) => path.join(HOME, d))],
+  // Extra folders whose images/videos any Bot may show in chat (e.g. a shared test-results folder). Colon-separated in the env var.
+  sharedMediaDirs: (envOr('CODE_CREW_SHARED_MEDIA') ? envOr('CODE_CREW_SHARED_MEDIA').split(':') : file.sharedMediaDirs || []).filter(Boolean).map((d) => d.replace(/^~(?=\/|$)/, HOME)),
   onePasswordToken: envOr('OP_SERVICE_ACCOUNT_TOKEN') || file.onePasswordToken || '',
 };
 export const isLoopback = (h) => h === '127.0.0.1' || h === 'localhost' || h === '::1';
