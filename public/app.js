@@ -414,7 +414,7 @@ els.jump.onclick = () => { state.stick = true; scrollBottom(true); };
 // iOS: the on-screen keyboard shrinks the visual viewport instead of the layout. Size the app to it so the composer stays visible.
 if (window.visualViewport) {
   const vv = window.visualViewport;
-  const fit = () => { document.documentElement.style.setProperty('--vh', vv.height + 'px'); window.scrollTo(0, 0); if (state.stick) scrollBottom(true); };
+  const fit = () => { document.documentElement.style.setProperty('--vh', vv.height + 'px'); if (document.querySelector('dialog[open]') || vv.scale > 1.01) return; window.scrollTo(0, 0); if (state.stick) scrollBottom(true); };
   vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
 new ResizeObserver(() => { document.documentElement.style.setProperty('--composer-h', els.composerWrap.offsetHeight + 'px'); if (state.stick) scrollBottom(true); }).observe(els.composerWrap);
