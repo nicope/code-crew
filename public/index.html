@@ -21,6 +21,7 @@
 <div class="app" id="app">
   <aside class="sidebar">
     <div class="side-top">
+      <button class="acct-btn" id="btnAccount" aria-label="Account and settings" title="Account and settings"><span class="acct-avatar" id="acctAvatar">·</span></button>
       <div class="side-title">Bots</div>
       <span class="status-dot" id="connDot" title="Connecting…"></span>
       <button class="icon-btn" id="btnNewBot" title="New Bot (⌘N)" aria-label="New Bot">
@@ -29,7 +30,6 @@
     </div>
     <div class="banner hidden" id="sideBanner"></div>
     <div class="bot-list" id="botList"></div>
-    <div class="side-foot" id="sideFoot"><button class="link-btn" id="btnConnectors">Connectors</button><button class="link-btn" id="btnVault">Vault</button><button class="link-btn" id="btnNotify">Turn on notifications</button><span id="notifyHint"></span></div>
   </aside>
 
   <main class="main" id="main">
@@ -90,6 +90,29 @@
   </main>
 
   <!-- details drawer -->
+  
+<dialog class="sheet" id="accountDialog">
+  <div class="sheet-top"><button class="icon-btn round" id="acctClose" aria-label="Close"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+  <div class="group">
+    <div class="row acct-row"><span class="acct-avatar lg" id="acctAvatar2">·</span><span class="row-text"><span class="row-title" id="acctName">Your Claude account</span><span class="row-sub" id="acctEmail">Loading…</span></span></div>
+    <button class="row" id="acctUsageRow" type="button"><span class="row-text"><span class="row-title">Usage</span><span class="row-sub" id="acctUsageSub">Loading…</span></span><span class="row-value" id="acctUsagePct"></span><span class="chev">›</span></button>
+    <div class="usage-detail hidden" id="acctUsageDetail"></div>
+    <a class="row" href="https://claude.ai/settings/usage" target="_blank" rel="noopener"><span class="row-text"><span class="row-title">Manage subscription</span><span class="row-sub">claude.ai</span></span><span class="chev">›</span></a>
+    <button class="row" id="btnVault" type="button"><span class="row-text"><span class="row-title">Vault</span><span class="row-sub">Logins your Bots can request</span></span><span class="chev">›</span></button>
+  </div>
+  <div class="group">
+    <button class="row" id="btnConnectors" type="button"><span class="row-text"><span class="row-title">Connectors</span><span class="row-sub">Services every Bot can use</span></span><span class="chev">›</span></button>
+  </div>
+  <div class="group-label">This device</div>
+  <div class="group">
+    <div class="row"><span class="row-text"><span class="row-title">Notifications</span><span class="row-sub" id="notifyHint">When a Bot finishes or needs approval</span></span><button class="pill" id="btnNotify" type="button">Turn on</button></div>
+  </div>
+  <div class="group-label">Code Crew</div>
+  <div class="group">
+    <a class="row" href="https://github.com/nicope/code-crew" target="_blank" rel="noopener"><span class="row-text"><span class="row-title">Code Crew on GitHub</span><span class="row-sub">Open source, MIT</span></span><span class="chev">›</span></a>
+  </div>
+</dialog>
+
   <aside class="drawer" id="drawer">
     <div class="drawer-head">
       <div class="drawer-title">Bot details</div>

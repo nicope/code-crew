@@ -297,6 +297,7 @@ class BotRuntime {
         if (msg.session_id && msg.session_id !== this.bot.sessionId) { this.bot.sessionId = msg.session_id; save(); }
         this.turnBuffer.push(msg);
         if (msg.type === 'system' && msg.subtype === 'init') this.terminalCmds = msg.terminal_slash_commands || [];
+        if (msg.type === 'rate_limit_event' && msg.rate_limit_info) noteRateLimit(msg.rate_limit_info);
         if (msg.type === 'system' && msg.subtype === 'commands_changed') this.commands = null;
         if (msg.type === 'system' && msg.subtype === 'status' && msg.status === 'requesting') this.markStarted(); // Claude Code is building an API request: queued messages are in it
         if (msg.type === 'assistant') for (const b of msg.message?.content || []) if (b.type === 'text' && b.text?.trim()) (this.turnBufferText ||= []).push(b.text.trim());
@@ -434,6 +435,36 @@ function protectSecretsHookFor(bot) {
 }
 const getRuntime = (id) => { let rt = runtimes.get(id); if (!rt) { const bot = botById(id); if (!bot) throw new Error('No such bot'); rt = new BotRuntime(bot); runtimes.set(id, rt); } return rt; };
 
+// ---------------------------------------------------------------- account + plan usage (top-left menu)
+const LIMIT_LABELS = { five_hour: 'Current session (5 h)', seven_day: 'This week', seven_day_opus: 'This week · Opus', seven_day_sonnet: 'This week · Sonnet', seven_day_oauth_apps: 'This week · apps' };
+const seenLimits = {}; // latest rate-limit event per window, from Bot streams
+const pct = (u) => (u == null ? null : u <= 1 ? Math.round(u * 1000) / 10 : Math.round(u * 10) / 10);
+function noteRateLimit(info) { const k = info.rateLimitType || 'five_hour'; seenLimits[k] = { utilization: pct(info.utilization), resetsAt: info.resetsAt ? (info.resetsAt < 1e12 ? info.resetsAt * 1000 : info.resetsAt) : null, status: info.status, at: Date.now() }; }
+const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
+let accountCache = null;
+async function accountSummary() {
+  if (accountCache && Date.now() - accountCache.at < 60e3) return accountCache.data;
+  const rt = [...runtimes.values()].find((r) => r.query) || (store.bots.length ? getRuntime((store.bots.find((b) => b.primary) || store.bots[0]).id) : null);
+  let info = {}, limits = [], source = null;
+  if (rt) {
+    rt.ensureStarted(); const q = rt.query;
+    try { info = await withTimeout(q.accountInfo(), 15000) || {}; } catch {}
+    try {
+      const u = await withTimeout(q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }), 20000);
+      if (u?.rate_limits_available && u.rate_limits) {
+        for (const [k, v] of Object.entries(u.rate_limits)) if (LIMIT_LABELS[k] && v && v.utilization != null) limits.push({ key: k, label: LIMIT_LABELS[k], utilization: pct(v.utilization / 100), resetsAt: v.resets_at ? Date.parse(v.resets_at) : null });
+        for (const m of u.rate_limits.model_scoped || []) if (m.utilization != null) limits.push({ key: 'model:' + m.display_name, label: `This week · ${m.display_name}`, utilization: pct(m.utilization / 100), resetsAt: m.resets_at ? Date.parse(m.resets_at) : null });
+        if (limits.length) source = 'plan';
+      }
+    } catch {}
+    rt.scheduleIdle();
+  }
+  if (!limits.length) { for (const [k, v] of Object.entries(seenLimits)) if (v.utilization != null) limits.push({ key: k, label: LIMIT_LABELS[k] || k, utilization: v.utilization, resetsAt: v.resetsAt, seenAt: v.at }); if (limits.length) source = 'replies'; }
+  const order = ['five_hour', 'seven_day']; limits.sort((a, b) => ((order.indexOf(a.key) + 1) || 9) - ((order.indexOf(b.key) + 1) || 9));
+  const data = { email: info.email || '', organization: info.organization || '', plan: info.subscriptionType || '', limits, source };
+  accountCache = { at: Date.now(), data }; return data;
+}
+
 // ---------------------------------------------------------------- routines
 function nextRunFor(r, from = Date.now()) {
   const d = new Date(from); const s = r.schedule || {};
@@ -524,6 +555,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (TOKEN && p === '/' && url.searchParams.get('token') === TOKEN) res.setHeader('set-cookie', `cc_token=${TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
 
+    if (p === '/api/account' && req.method === 'GET') return json(res, 200, await accountSummary());
     if (p === '/api/media-key') return json(res, 200, { key: mediaKey() });
     if (p === '/api/dirs') return json(res, 200, { dirs: listDirs(), default: DEFAULT_CWD, botsDir: BOTS_DIR, home: HOME, defaultPermission: DEFAULT_PERMISSION, defaultModel: DEFAULT_MODEL });
     let m;

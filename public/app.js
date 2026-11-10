@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -569,7 +569,7 @@ async function setupNotifications() {
   const reg = await navigator.serviceWorker.register('/sw.js').catch(() => null);
   if (!reg) { btn.classList.add('hidden'); hint.textContent = 'Notifications unavailable here.'; return; }
   const existing = await reg.pushManager.getSubscription();
-  const setOn = () => { btn.textContent = 'Notifications on'; btn.disabled = true; hint.textContent = ''; };
+  const setOn = () => { btn.textContent = 'On'; btn.disabled = true; hint.textContent = 'On for this device'; };
   if (existing && Notification.permission === 'granted') { api('/api/push/subscribe', { method: 'POST', body: { subscription: existing.toJSON() } }).catch(() => {}); setOn(); return; }
   btn.onclick = async () => {
     try {
@@ -625,7 +625,7 @@ function openConnForm(id) {
   };
   els.connGrid.classList.add('hidden'); f.classList.remove('hidden'); f.querySelector('input')?.focus();
 }
-els.btnConnectors.onclick = openConnectors; els.connClose.onclick = () => els.connDialog.close();
+els.btnConnectors.onclick = () => { els.accountDialog.close(); openConnectors(); }; els.connClose.onclick = () => els.connDialog.close();
 els.dManageConn.onclick = () => { closeDrawer(); openConnectors(); };
 async function renderBotConnectors(b) {
   await loadConnectors();
@@ -642,7 +642,7 @@ async function openVault() {
   els.opStatus.textContent = !v.onePassword.cli ? 'Needs the 1Password CLI on this machine: brew install 1password-cli' : v.onePassword.token ? 'Connected with a service account.' : 'CLI found. Paste a service-account token to let Bots request items from 1Password.';
   els.opToken.classList.toggle('hidden', !v.onePassword.cli); els.opSave.classList.toggle('hidden', !v.onePassword.cli);
 }
-els.btnVault.onclick = openVault; els.vaultClose.onclick = () => els.vaultDialog.close();
+els.btnVault.onclick = () => { els.accountDialog.close(); openVault(); }; els.vaultClose.onclick = () => els.vaultDialog.close();
 els.vaultAddForm.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(els.vaultAddForm); const name = String(f.get('name')).trim(); if (!name || !f.get('value')) return; try { await api(`/api/vault/item/${encodeURIComponent(name)}`, { method: 'PUT', body: { value: f.get('value'), note: f.get('note') } }); els.vaultAddForm.reset(); openVault(); } catch (err) { alert(err.message); } };
 els.opSave.onclick = async () => { try { await api('/api/vault/onepassword', { method: 'PUT', body: { token: els.opToken.value.trim() } }); els.opToken.value = ''; openVault(); } catch (err) { alert(err.message); } };
 
@@ -808,3 +808,26 @@ els.input.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape') hideSlash();
 }, true);
 const _autosize2 = autosize; autosize = function () { _autosize2(); if (!els.input.value) hideSlash(); };
+
+// ---- account sheet (top-left avatar): who is logged in, plan usage left, vault, connectors, notifications
+const fmtReset = (ts) => { if (!ts) return ''; const d = ts - Date.now(); if (d <= 0) return 'resets now'; if (d < 3600e3) return `resets in ${Math.ceil(d / 60e3)} min`; if (d < 86400e3) return `resets in ${Math.round(d / 3600e3)} h`; return `resets ${new Date(ts).toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`; };
+const PLAN_NAMES = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise', free: 'Free' };
+async function loadAccount() {
+  let a; try { a = await api('/api/account'); } catch { els.acctEmail.textContent = 'Could not load the account'; return; }
+  const initial = (a.email || 'C')[0].toUpperCase();
+  els.acctAvatar.textContent = initial; els.acctAvatar2.textContent = initial;
+  els.acctName.textContent = a.email ? a.email.split('@')[0] : 'Your Claude account';
+  els.acctEmail.textContent = [a.email, PLAN_NAMES[String(a.plan).toLowerCase()] || a.plan].filter(Boolean).join(' · ') || 'Claude subscription';
+  const L = a.limits || [];
+  if (!L.length) { els.acctUsagePct.textContent = ''; els.acctUsageSub.textContent = 'Shows up after a Bot replies'; els.acctUsageDetail.innerHTML = ''; return; }
+  const top = L.reduce((m, x) => (x.utilization > m.utilization ? x : m), L[0]);
+  els.acctUsagePct.textContent = `${Math.round(top.utilization)}%`;
+  els.acctUsagePct.classList.toggle('warn', top.utilization >= 80);
+  els.acctUsageSub.textContent = `${top.label}${top.resetsAt ? ' · ' + fmtReset(top.resetsAt) : ''}`;
+  els.acctUsageDetail.innerHTML = L.map((x) => `<div class="u-line"><div class="u-head"><span>${esc(x.label)}</span><span>${Math.round(x.utilization)}% used</span></div><div class="u-bar"><span style="width:${Math.min(100, Math.max(0, x.utilization))}%" class="${x.utilization >= 80 ? 'warn' : ''}"></span></div><div class="u-sub">${esc(fmtReset(x.resetsAt))}${x.seenAt ? ` · as of ${fmtAgo(x.seenAt)} ago` : ''}</div></div>`).join('') + (a.source === 'replies' ? '<p class="u-note">From the latest Bot replies.</p>' : '');
+}
+els.btnAccount.onclick = () => { els.accountDialog.showModal(); loadAccount(); };
+els.acctClose.onclick = () => els.accountDialog.close();
+els.accountDialog.addEventListener('click', (e) => { if (e.target === els.accountDialog) els.accountDialog.close(); });
+els.acctUsageRow.onclick = () => els.acctUsageDetail.classList.toggle('hidden');
+loadAccount();
