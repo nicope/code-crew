@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -98,7 +98,7 @@ const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" ar
 const setAvatar = (el, bot) => { el.innerHTML = avatarSvg(bot.shape, bot.color, bot.name); };
 
 // ---- state ----
-const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, dirs: [], defaultDir: '' };
+const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, decisions: [], dirs: [], defaultDir: '' };
 const currentBot = () => state.bots.find((b) => b.id === state.botId);
 
 // ---- websocket ----
@@ -133,7 +133,7 @@ window.addEventListener('pageshow', checkLink); window.addEventListener('focus',
 const wsSend = (o) => state.ws?.readyState === 1 && state.ws.send(JSON.stringify(o));
 
 function handle(m) {
-  if (m.type === 'bots') { const before = pendingTotal(); state.bots = m.bots; renderBots(); updateHead(); if (pendingTotal() > before) alertUser(); return; }
+  if (m.type === 'bots') { const before = pendingTotal(); state.bots = m.bots; state.decisions = m.decisions || []; renderBots(); renderDecisions(); updateHead(); if (pendingTotal() > before) alertUser(); return; }
   if (m.type === 'bot_deleted') { if (m.botId === state.botId) showNoBot(); return; }
   if (m.botId && m.botId !== state.botId) return; // another bot's stream
   switch (m.type) {
@@ -163,7 +163,7 @@ function onSdk(msg) {
     case 'assistant': onAssistant(msg.message); break;
     case 'user': onUserMsg(msg); break;
     case 'result': onResult(msg); break;
-    case 'tool_progress': { const rec = state.toolsById.get(msg.tool_use_id); if (rec) rec.time.textContent = fmtDur(msg.elapsed_time_seconds * 1000); break; }
+    case 'tool_progress': { const rec = state.toolsById.get(msg.tool_use_id); if (rec?.time) rec.time.textContent = fmtDur(msg.elapsed_time_seconds * 1000); break; }
   }
 }
 
@@ -247,7 +247,12 @@ function onStream(ev) {
 function onAssistant(message) {
   const t = ensureTurn();
   for (const block of message.content || []) {
-    if (block.type === 'tool_use') {
+    if (block.type === 'tool_use' && block.name === 'mcp__bots__decision_card') {
+      if (state.toolsById.has(block.id)) continue;
+      const el = decisionCard({ ...block.input, botId: state.botId, status: 'posting' });
+      t.el.appendChild(el); if (t.textEl) t.el.appendChild(t.textEl);
+      state.toolsById.set(block.id, { decisionEl: el, input: block.input }); scrollBottom();
+    } else if (block.type === 'tool_use') {
       const [verb, arg] = describeTool(block.name, block.input);
       const step = addStep(t, { cls: 'running', verb, arg, body: toolBody(block.name, block.input) });
       t.stepCount++;
@@ -275,6 +280,7 @@ function onUserMsg(msg) {
   for (const block of content) {
     if (block.type !== 'tool_result') continue;
     const rec = state.toolsById.get(block.tool_use_id); if (!rec) continue;
+    if (rec.decisionEl) { const txt = JSON.stringify(block.content || ''); const id = (txt.match(/\[decision:([\w-]+)\]/) || [])[1]; if (id) { rec.decisionEl.dataset.id = id; refreshDecisionEl(rec.decisionEl); } else rec.decisionEl.classList.add('failed'); continue; }
     rec.step.classList.remove('running'); if (block.is_error) rec.step.classList.add('error');
     if (!state.replaying) rec.time.textContent = fmtDur(Date.now() - rec.started); // replayed history has no real timing
     const txt = typeof block.content === 'string' ? block.content : (block.content || []).map((c) => c.type === 'text' ? c.text : `[${c.type}]`).join('\n');
@@ -320,6 +326,9 @@ function showPermission(req) {
 function addUserBubble(text) {
   hideEmpties();
   let m;
+  if ((m = text.match(/^\[Decision\] ([^\n]*)\n→ ([^\n]*)(?:\nNote: ([\s\S]*))?$/))) {
+    const el = document.createElement('div'); el.className = 'msg system-note'; el.innerHTML = `<span class="chip">✓ You decided <b>${esc(m[2])}</b>${m[3] ? ` · “${esc(m[3].slice(0, 80))}”` : ''}</span>`; el.title = m[1]; els.thread.appendChild(el); return;
+  }
   if ((m = text.match(/^\[Routine: ([^\]]+)\]( \(run now\))?\n?([\s\S]*)$/))) {
     const el = document.createElement('div'); el.className = 'msg system-note'; el.innerHTML = `<span class="chip">Routine <b>${esc(m[1])}</b> ran${m[2] ? ' (manual)' : ''}</span>`; els.thread.appendChild(el); return;
   }
@@ -872,3 +881,59 @@ els.docShare.onclick = async () => {
   try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: docOpen.name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: docOpen.name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
+
+
+// ---- decision cards: a Bot posts a question with 2-4 options; one tap answers it and the choice goes back to the Bot as a message.
+function decisionCard(d, { inbox = false } = {}) {
+  const el = document.createElement('div'); el.className = 'decision' + (inbox ? ' inbox' : ''); if (d.id) el.dataset.id = d.id;
+  el.dataset.bot = d.botId || ''; el._d = d;
+  paintDecision(el, d, inbox); return el;
+}
+function paintDecision(el, d, inbox = el.classList.contains('inbox')) {
+  el._d = d;
+  const bot = state.bots.find((b) => b.id === d.botId);
+  const open = d.status === 'open', opts = d.options || [];
+  const done = d.status === 'answered' ? `✓ Decided: <b>${esc(d.answer)}</b>${d.note ? ` · “${esc(d.note)}”` : ''}` : d.status === 'dismissed' ? 'Dismissed' : d.status === 'posting' ? 'Posting…' : 'This card is no longer open';
+  el.classList.toggle('answered', !open);
+  el.innerHTML = `<div class="dec-head"><span class="dec-icon">◆</span><span>${inbox ? `<b>${esc(bot?.name || 'A Bot')}</b> · ` : ''}Decision</span>${inbox ? '<span class="dec-ago">' + esc(fmtAgo(d.createdAt)) + '</span>' : ''}</div>
+    <div class="dec-q">${esc(d.question || '')}</div>${d.context ? `<div class="dec-ctx md">${renderMd(d.context, { media: false })}</div>` : ''}
+    ${open ? `<div class="dec-opts">${opts.map((o, i) => `<button class="pill${i === d.recommended ? ' primary' : ''}" data-i="${i}">${esc(o)}${i === d.recommended ? ' <span class="dec-rec">recommended</span>' : ''}</button>`).join('')}<button class="pill ghost" data-other>Other…</button></div>
+    <div class="dec-other hidden"><textarea rows="2" placeholder="Your answer, or a note to send with an option"></textarea><div class="dec-other-actions"><button class="pill primary" data-send>Send</button><button class="pill ghost" data-dismiss>Dismiss card</button></div></div>` : `<div class="dec-done">${done}</div>`}`;
+  if (inbox) el.querySelector('.dec-head').onclick = () => openBot(d.botId);
+  if (!open) return;
+  const note = () => el.querySelector('textarea').value.trim();
+  el.querySelector('.dec-opts').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.other !== undefined) { el.querySelector('.dec-other').classList.toggle('hidden'); el.querySelector('textarea').focus(); return; }
+    decide(d, { choice: +b.dataset.i, note: note() });
+  };
+  el.querySelector('.dec-other').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.send !== undefined) { if (note()) decide(d, { note: note() }); }
+    else if (b.dataset.dismiss !== undefined) decide(d, { dismiss: true });
+  };
+}
+function decide(d, body) {
+  if (!d.id) return;
+  wsSend({ type: 'decide', botId: d.botId, id: d.id, ...body });
+  // optimistic: the server broadcast confirms it a moment later
+  const local = { ...d, status: body.dismiss ? 'dismissed' : 'answered', answer: body.choice != null ? d.options[body.choice] : 'Other', note: body.note || '' };
+  document.querySelectorAll(`.decision[data-id="${d.id}"]`).forEach((el) => paintDecision(el, local));
+}
+function refreshDecisionEl(el) {
+  const d = state.decisions.find((x) => x.id === el.dataset.id);
+  if (d) paintDecision(el, d); else if (el._d?.status === 'posting') paintDecision(el, { ...el._d, status: 'expired' });
+}
+function renderDecisions() {
+  const open = state.decisions.filter((d) => d.status === 'open').sort((a, b) => b.createdAt - a.createdAt);
+  const list = els.decisionList; if (!list) return;
+  const sig = open.map((d) => d.id).join(',');
+  if (list.dataset.sig !== sig) {
+    list.dataset.sig = sig; list.innerHTML = '';
+    if (open.length) { const h = document.createElement('div'); h.className = 'dec-title'; h.textContent = `Decisions · ${open.length}`; list.appendChild(h); }
+    for (const d of open) list.appendChild(decisionCard(d, { inbox: true }));
+  }
+  list.classList.toggle('hidden', !open.length);
+  document.querySelectorAll('#thread .decision[data-id]').forEach(refreshDecisionEl);
+  const n = pendingTotal() + open.length; document.title = n ? `(${n}) Bots` : 'Bots';
+}

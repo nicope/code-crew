@@ -343,3 +343,28 @@ button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: t
 @media (min-width: 761px) { .doc-sheet { width: min(820px, 94vw); height: 86vh; } }
 .md a.doc-card, .doc-card { color: var(--text); text-decoration: none; }
 .doc-body img { max-width: 100%; height: auto; }
+
+/* decision cards */
+.decision { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--raised); border-radius: 14px; padding: 12px 14px; margin: 8px 0 12px; }
+.decision .dec-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.decision .dec-head b { color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 600; }
+.decision .dec-icon { color: var(--accent); }
+.decision .dec-ago { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.decision .dec-q { font-weight: 600; font-size: 15px; margin: 6px 0 4px; }
+.decision .dec-ctx { font-size: 13.5px; color: var(--muted); }
+.decision .dec-ctx p { margin: 4px 0; }
+.decision .dec-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.decision .dec-opts .pill { margin: 0; }
+.decision .dec-rec { font-size: 11px; opacity: .7; margin-left: 4px; }
+.pill.ghost { background: transparent; color: var(--muted); }
+.decision .dec-other { margin-top: 10px; }
+.decision .dec-other textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 8px 10px; font: inherit; }
+.decision .dec-other-actions { display: flex; gap: 8px; margin-top: 8px; } .decision .dec-other-actions .pill { margin: 0; }
+.decision .dec-done { margin-top: 8px; font-size: 13.5px; color: var(--muted); } .decision .dec-done b { color: var(--text); }
+.decision.answered { opacity: .75; border-color: var(--line); }
+.decision.failed { display: none; }
+.decision-list { padding: 8px 10px 2px; border-bottom: 1px solid var(--line); max-height: 55vh; overflow-y: auto; flex-shrink: 0; }
+.decision-list .dec-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 2px 4px 0; }
+.decision-list .decision { margin: 8px 0; }
+.decision-list .dec-head { cursor: pointer; }
+.decision textarea { font-size: 16px; }

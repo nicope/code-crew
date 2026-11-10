@@ -170,9 +170,13 @@ function vaultMcpServer(rt) {
 }
 
 // ---------------------------------------------------------------- store
-const store = { bots: [], routines: [], push: [] };
+const store = { bots: [], routines: [], push: [], decisions: [] };
 try { Object.assign(store, JSON.parse(fs.readFileSync(STORE, 'utf8'))); } catch {}
 for (const b of store.bots) b.turns ||= []; // messages queued or in flight, kept so a restart cannot lose them
+store.decisions ||= [];
+// Decision cards: a Bot asks the user to pick one option; the answer comes back to it as a message. Open cards stay until answered; answered ones are kept two weeks so the chat can show what was decided.
+const DECISION_KEEP_MS = 14 * 24 * 3600 * 1000;
+const visibleDecisions = () => { const cut = Date.now() - DECISION_KEEP_MS; store.decisions = store.decisions.filter((d) => d.status === 'open' || (d.answeredAt || 0) > cut); return store.decisions; };
 let saveTimer = null;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => fs.writeFileSync(STORE, JSON.stringify(store, null, 2)), 150); }
 const flush = () => { clearTimeout(saveTimer); fs.writeFileSync(STORE, JSON.stringify(store, null, 2)); };
@@ -202,7 +206,8 @@ if (store.bots.length === 0) {
 // ---------------------------------------------------------------- bot runtimes
 const runtimes = new Map();      // botId -> BotRuntime
 const sockets = new Set();       // all websocket clients
-const broadcastBots = () => { const payload = JSON.stringify({ type: 'bots', bots: store.bots.map(publicBot) }); for (const ws of sockets) if (ws.readyState === 1) ws.send(payload); };
+const botsPayload = () => ({ type: 'bots', bots: store.bots.map(publicBot), decisions: visibleDecisions() });
+const broadcastBots = () => { const payload = JSON.stringify(botsPayload()); for (const ws of sockets) if (ws.readyState === 1) ws.send(payload); };
 
 function makeInbox() {
   const queue = []; let wake = null; let closed = false;
@@ -226,6 +231,17 @@ function botsMcpServer(self) {
           getRuntime(target.id).enqueue(`[Message from Bot "${self.name}"]\n${message}`, { origin: 'bot' });
           return { content: [{ type: 'text', text: `Delivered to ${target.name}. It will reply in its own conversation.` }] };
         }),
+      tool('decision_card', 'Ask the user to decide something by posting a decision card they answer with one tap (it also reaches their phone as a notification). Use it instead of asking in prose whenever you need a choice: merge or hold a PR, option A or B, go or no-go. One decision per card; give 2 to 4 short options and mark the one you recommend. Do not wait for the answer: post it, finish or continue other work, and the choice arrives later as a message starting with [Decision].', {
+        question: z.string().describe('The decision, as a short question, e.g. "Merge Metros #92 (install-wizard login fix)?"'),
+        context: z.string().optional().describe('Two or three lines of markdown with what the user needs to decide: what it is, the risk, what you verified'),
+        options: z.array(z.string()).min(2).max(4).describe('Short button labels, e.g. ["Merge", "Fix first", "Close"]'),
+        recommended: z.number().int().min(0).max(3).optional().describe('Index of the option you recommend'),
+      }, async ({ question, context, options, recommended }) => {
+        const d = { id: randomUUID().slice(0, 8), botId: self.id, question: String(question).slice(0, 300), context: String(context || '').slice(0, 2000), options: options.map((o) => String(o).slice(0, 60)), recommended: recommended != null && recommended < options.length ? recommended : null, status: 'open', createdAt: Date.now() };
+        store.decisions.push(d); save(); broadcastBots();
+        notify({ title: `${self.name} needs a decision`, body: d.question, tag: `dec-${d.id}`, url: `/?bot=${self.id}` });
+        return { content: [{ type: 'text', text: `Decision card posted [decision:${d.id}]. Do not wait for it; the user's choice will arrive as a [Decision] message.` }] };
+      }),
       tool('list_bots', 'List the Bots in this workspace with their labels.', {}, async () => ({ content: [{ type: 'text', text: store.bots.map((b) => `- ${b.name}${b.label ? ` (${b.label})` : ''}${b.id === self.id ? ' — you' : ''}`).join('\n') }] })),
     ],
   });
@@ -246,6 +262,8 @@ function identityPrompt(bot) {
     `The user keeps logins and secrets in a vault. When a task needs a credential you do not have (a login for a site, a database password, an API key with no connector), call vault_list to see what exists and vault_get(name, reason) to request it; the user approves each request. If it is not there, vault_request(name, why) asks them to add it. Never ask the user to paste secrets into the chat.`,
     `# Other Bots`,
     others.length ? `Other Bots you can message with the message_bot tool: ${others.join('; ')}. Hand off work that fits another Bot's job better, and say so to the user.` : `There are no other Bots yet.`,
+    `# Decisions`,
+    `When you need the user to choose (merge or hold, A or B, go or no-go), post a decision card with the decision_card tool instead of asking in prose: one decision per card, 2 to 4 short options, your recommendation marked. Don't block on it. The answer arrives as a message starting with [Decision]; act on it.`,
     `# Messages that start with [Routine: …] are scheduled runs you were given; do the task and report briefly. A message starting with [Mentioned by the user in Bot "X"'s conversation] was typed by the user in another Bot's chat with your @name: do what is asked, then send your answer to Bot X with message_bot so it appears in that conversation, and keep your own reply here to one line. If there is nothing worth saying, reply with one line. Messages that start with [Message from Bot "…"] come from another Bot; act on them and reply to the user, not to the Bot, unless a reply to the Bot is needed.`,
   ].join('\n');
 }
@@ -279,7 +297,7 @@ class BotRuntime {
       env: childEnv(),
       systemPrompt: { type: 'preset', preset: 'claude_code', append: identityPrompt(bot) },
       mcpServers: { bots: botsMcpServer(bot), vault: vaultMcpServer(this), ...connectorServers(bot).servers },
-      allowedTools: ['mcp__bots__message_bot', 'mcp__bots__list_bots', 'mcp__vault', ...connectorServers(bot).allowed],
+      allowedTools: ['mcp__bots__message_bot', 'mcp__bots__list_bots', 'mcp__bots__decision_card', 'mcp__vault', ...connectorServers(bot).allowed],
       canUseTool: (toolName, input, { suggestions, signal }) => this.askPermission(toolName, input, suggestions, signal),
       hooks: { PreToolUse: [{ matcher: 'Read|Grep|Glob|Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [protectSecretsHookFor(bot)] }] },
     };
@@ -751,7 +769,7 @@ wss.on('connection', (ws, req) => {
   sockets.add(ws);
   let current = null; // runtime this socket is viewing
   const reply = (o) => ws.readyState === 1 && ws.send(JSON.stringify(o));
-  reply({ type: 'bots', bots: store.bots.map(publicBot) });
+  reply(botsPayload());
 
   ws.on('message', async (raw) => {
     let m; try { m = JSON.parse(raw); } catch { return; }
@@ -779,6 +797,17 @@ wss.on('connection', (ws, req) => {
         }
         case 'interrupt': await runtimes.get(bot.id)?.interrupt(); break;
         case 'permission': runtimes.get(bot.id)?.answerPermission(m.id, !!m.allow, !!m.always, m.value); break;
+        case 'decide': {
+          const d = store.decisions.find((x) => x.id === m.id && x.botId === bot.id); if (!d || d.status !== 'open') break;
+          const note = typeof m.note === 'string' ? m.note.trim().slice(0, 2000) : '';
+          if (m.dismiss) { d.status = 'dismissed'; d.answeredAt = Date.now(); save(); broadcastBots(); break; }
+          const choice = Number.isInteger(m.choice) && d.options[m.choice] ? d.options[m.choice] : null;
+          if (!choice && !note) break;
+          Object.assign(d, { status: 'answered', answer: choice || 'Other', note, answeredAt: Date.now() });
+          save(); broadcastBots();
+          getRuntime(bot.id).enqueue(`[Decision] ${d.question}\n→ ${choice || 'Other'}${note ? `\nNote: ${note}` : ''}`, { origin: 'user' });
+          break;
+        }
       }
     } catch (err) { reply({ type: 'error', botId: m.botId, error: String(err?.message || err) }); }
   });

@@ -13,3 +13,4 @@ vapid*.json
 *.pem
 .env.*
 attachments/
+.shots/
