@@ -396,3 +396,13 @@ button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: t
 .msg-menu.emojis { display: flex; min-width: 0; padding: 4px; }
 .msg-menu.emojis button { font-size: 20px; padding: 6px 7px; width: auto; justify-content: center; }
 .bubble .quote { border-left: 3px solid var(--faint); padding: 2px 0 2px 9px; margin-bottom: 6px; color: var(--muted); font-size: .92em; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
+
+/* never scroll the conversation sideways: long tokens wrap, wide blocks scroll inside themselves */
+.scroll { overflow-x: hidden; overscroll-behavior-x: none; }
+.md, .bubble { overflow-wrap: anywhere; min-width: 0; }
+.md code, .md a, .bubble a { overflow-wrap: anywhere; word-break: break-word; }
+.md pre code { overflow-wrap: normal; word-break: normal; }
+.md table { max-width: 100%; }
+.msg.system-note .chip { min-width: 0; white-space: normal; }
+.msg.system-note .chip b { overflow-wrap: anywhere; }
+.msg { max-width: 100%; min-width: 0; }
