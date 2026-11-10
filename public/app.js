@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread','threadPanel','threadFrame'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -367,7 +367,7 @@ function addUserBubble(text) {
   const isMedia = (f) => /\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm|m4a|mp3|wav)$/i.test(f);
   u.innerHTML = `${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${quote ? `<div class="quote">${esc(quote)}</div>` : ''}${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
   addMsgActions(u, { raw: rawText, user: true });
-  u.querySelector('.bubble').addEventListener('click', (e) => { if (!e.target.closest('a, video, img, .attach')) u.classList.toggle('show-actions'); });
+  u.querySelector('.bubble').addEventListener('click', (e) => { if (e.target.closest('a, video, img, .attach') || String(getSelection()).trim()) return; const open = threadFor(u.dataset.key); if (open && !currentBot()?.isThread) openBot(open.id); else u.classList.toggle('show-actions'); });
   els.thread.appendChild(u);
 }
 function replayHistory(messages) {
@@ -501,9 +501,30 @@ function updateHead() {
   els.btnThreads.classList.toggle('hidden', !nThreads); els.threadCount.textContent = nThreads || '';
   els.headState.textContent = b.busy ? 'Working…' : b.pendingApprovals ? 'Waiting for your approval' : '';
 }
+// Wide screens: a thread opens in a right-hand panel beside its main chat (Slack-style). The panel is the same app in
+// embed mode, so it renders and streams on its own. Phones (and the panel itself) open threads full screen.
+const EMBED = new URLSearchParams(location.search).has('embed');
+if (EMBED) document.documentElement.classList.add('embed');
+const wideForPanel = () => !EMBED && window.innerWidth > 1100;
+function openThreadPanel(t) {
+  if (state.botId !== t.threadOf) openBot(t.threadOf);
+  if (els.threadPanel.dataset.id !== t.id) { els.threadFrame.src = `/?bot=${encodeURIComponent(t.id)}&embed=1`; els.threadPanel.dataset.id = t.id; }
+  els.threadPanel.classList.remove('hidden'); els.app.classList.add('with-thread');
+  els.thread.querySelectorAll('.thread-chip').forEach((c) => c.classList.toggle('active', c.dataset.id === t.id));
+}
+function closeThreadPanel() { els.threadPanel.classList.add('hidden'); els.app.classList.remove('with-thread'); els.threadFrame.src = 'about:blank'; delete els.threadPanel.dataset.id; els.thread.querySelectorAll('.thread-chip.active').forEach((c) => c.classList.remove('active')); }
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin) return;
+  if (e.data?.type === 'cc-close-thread') closeThreadPanel();
+  if (e.data?.type === 'cc-open-bot' && e.data.id) { closeThreadPanel(); openBot(e.data.id); }
+});
 function openBot(id) {
+  const th = threadById(id);
+  if (th && wideForPanel()) return openThreadPanel(th);
+  if (EMBED && !th && state.botId) return parent.postMessage({ type: 'cc-open-bot', id }, location.origin); // "open main chat" from inside the panel
+  if (!EMBED && !th && els.threadPanel.dataset.id && threadById(els.threadPanel.dataset.id)?.threadOf !== id) closeThreadPanel();
   if (state.botId && state.botId !== id) wsSend({ type: 'unsubscribe' });
-  state.botId = id; localStorage.setItem('botId', id);
+  state.botId = id; if (!EMBED) localStorage.setItem('botId', id);
   if (state.pendingThread) { state.pendingThread = null; renderThreadBar(); }
   els.app.classList.add('show-chat'); els.composerWrap.classList.remove('hidden');
   resetThread(); renderBots(); updateHead();
@@ -580,7 +601,7 @@ els.btnStop.onclick = () => wsSend({ type: 'interrupt', botId: state.botId });
 els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.innerWidth > 760) { e.preventDefault(); send(); } });
 els.input.addEventListener('input', autosize);
 els.btnNewBot.onclick = openCreate; els.btnNewBot2.onclick = openCreate;
-function goBack() { const t = threadById(state.botId); if (t) openBot(t.threadOf); else els.app.classList.remove('show-chat'); }
+function goBack() { if (EMBED) return parent.postMessage({ type: 'cc-close-thread' }, location.origin); const t = threadById(state.botId); if (t) openBot(t.threadOf); else els.app.classList.remove('show-chat'); }
 els.btnBack.onclick = goBack;
 els.botHead.onclick = openDrawer; els.btnDetails.onclick = openDrawer; els.btnCloseDrawer.onclick = closeDrawer; els.scrim.onclick = closeDrawer;
 document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); openCreate(); } if (e.key === 'Escape') closeDrawer(); });
@@ -603,6 +624,7 @@ document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.
 // ---- push notifications (needs the https link; on iPhone also "Add to Home Screen")
 const b64ToU8 = (s) => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
 async function setupNotifications() {
+  if (EMBED) return;
   const btn = els.btnNotify, hint = els.notifyHint;
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const iOS = /iPhone|iPad/.test(navigator.userAgent);
@@ -999,7 +1021,14 @@ function addMsgActions(el, { raw, key, md, user }) {
     openMsgMenu(b, items, b.dataset.a === 'react');
   };
   el.appendChild(bar);
+  // Slack-style: tapping a reply's text opens its thread (or starts one). Links, code, media, buttons and text selection keep working.
+  if (!inThread && md) md.addEventListener('click', (e) => {
+    if (e.target.closest('a, button, code, pre, img, video, audio, table, .doc-card, summary, details') || String(getSelection()).trim()) return;
+    const k = key || el.dataset.key, open = threadFor(k);
+    if (open) openBot(open.id); else startThread(k || null, md.innerText.trim() || raw);
+  });
 }
+const threadFor = (key) => key ? state.threads.find((t) => t.threadOf === state.botId && t.rootKey === key) : null;
 function paintReactions(r, key) {
   const list = state.reactions[key] || [];
   r.innerHTML = list.map((x) => `<button class="reaction" data-e="${x}" title="Remove">${x}</button>`).join('');
@@ -1054,6 +1083,7 @@ function paintThreadChips() {
     const anchor = els.thread.querySelector(`.msg[data-key="${CSS.escape(t.rootKey)}"]`); if (!anchor) continue;
     const chip = document.createElement('button'); chip.className = 'thread-chip' + (t.busy ? ' busy' : '');
     chip.innerHTML = `<span class="tc-title">🧵 ${esc(t.title || 'Thread')}</span>${t.tldr ? `<span class="tc-tldr">${esc(t.tldr)}</span>` : ''}<span class="tc-meta">${esc(fmtThreadMeta(t))}</span>`;
+    chip.dataset.id = t.id; chip.classList.toggle('active', els.threadPanel.dataset.id === t.id);
     chip.onclick = () => openBot(t.id);
     const bar = anchor.querySelector(':scope > .msg-actions'); anchor.insertBefore(chip, bar || null);
   }

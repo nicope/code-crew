@@ -431,3 +431,20 @@ button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: t
 .msg-menu .mm-text { display: flex; flex-direction: column; min-width: 0; }
 .msg-menu .mm-text small { color: var(--muted); font-size: 12px; white-space: normal; max-width: 260px; }
 .msg-menu { max-width: min(340px, calc(100vw - 16px)); }
+
+.msg.turn > .md { cursor: pointer; } .thread-view .msg.turn > .md { cursor: auto; }
+
+/* thread side panel (wide screens) */
+.thread-panel { display: none; }
+@media (min-width: 1101px) {
+  .app.with-thread { grid-template-columns: 288px 1fr 440px; }
+  .app.with-thread .thread-panel { display: block; border-left: 1px solid var(--line); min-width: 0; height: 100%; }
+  .thread-panel iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+}
+.thread-chip.active { border-color: var(--accent); background: var(--accent-soft); }
+/* embed mode: the panel shows only the conversation */
+.embed .sidebar { display: none !important; }
+.embed .app { grid-template-columns: 1fr !important; }
+.embed .main { display: flex !important; }
+.embed .topbar .back { display: inline-flex; }
+.embed .topbar .back svg { display: none; } .embed .topbar .back::before { content: '✕'; font-size: 15px; }
