@@ -414,7 +414,7 @@ function send(text) {
   if (cb?.isThread && els.alsoMain.checked && text) { wsSend({ type: 'send', botId: cb.threadOf, text: `[From your thread "${cb.name}"]\n${text}` }); els.alsoMain.checked = false; }
   state.anchor = null; state.stick = true; els.catchup.classList.add('hidden');
   hideEmpties(); finishTurn(); addUserBubble(`${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim());
-  els.input.value = ''; autosize(); setBusy(true); state.attachments = []; renderAttachments();
+  els.input.value = ''; autosize(); saveDraft(); setBusy(true); state.attachments = []; renderAttachments();
   wsSend({ type: 'send', botId: state.botId, text, attachments: files }); ensureTurn();
 }
 // ---- attachments: picked, dropped or pasted; uploaded into the Bot's folder before sending
@@ -536,7 +536,9 @@ function openBot(id) {
   if (EMBED && !th && state.botId) return parent.postMessage({ type: 'cc-open-bot', id }, location.origin); // "open main chat" from inside the panel
   if (!EMBED && !th && els.threadPanel.dataset.id && threadById(els.threadPanel.dataset.id)?.threadOf !== id) closeThreadPanel();
   if (state.botId && state.botId !== id) wsSend({ type: 'unsubscribe' });
+  saveDraft(); // the half-written message stays with the chat it was written in
   state.botId = id; if (!EMBED) localStorage.setItem('botId', id);
+  loadDraft();
   if (state.pendingThread) { state.pendingThread = null; renderThreadBar(); }
   els.app.classList.add('show-chat'); els.composerWrap.classList.remove('hidden');
   resetThread(); renderBots(); updateHead();
@@ -610,7 +612,7 @@ els.rAdd.onclick = async () => { const b = currentBot(); if (!b) return; if (!el
 // ---- wiring ----
 els.btnSend.onclick = () => (rec.mr ? sendVoice() : send());
 els.btnStop.onclick = () => wsSend({ type: 'interrupt', botId: state.botId });
-els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.innerWidth > 760) { e.preventDefault(); send(); } });
+els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!e.shiftKey && window.innerWidth > 760))) { e.preventDefault(); send(); } });
 els.input.addEventListener('input', autosize);
 els.btnNewBot.onclick = openCreate; els.btnNewBot2.onclick = openCreate;
 function goBack() { if (EMBED) return parent.postMessage({ type: 'cc-close-thread' }, location.origin); const t = threadById(state.botId); if (t) openBot(t.threadOf); else els.app.classList.remove('show-chat'); }
@@ -991,6 +993,7 @@ function decide(d, body) {
 }
 function refreshDecisionEl(el) {
   const d = state.decisions.find((x) => x.id === el.dataset.id);
+  if (d && el._d && el._d.status === d.status && el._d.id === d.id) return; // unchanged: repainting would wipe a half-typed answer
   if (d) paintDecision(el, d); else if (el._d?.status === 'posting') paintDecision(el, { ...el._d, status: 'expired' });
 }
 function renderDecisions() {
@@ -1177,3 +1180,22 @@ els.scroll.addEventListener('scroll', () => { const now = Date.now(); if (now - 
 for (const ev of ['wheel', 'touchstart', 'keydown']) els.scroll.addEventListener(ev, () => { state.anchor = null; }, { passive: true });
 // Images and videos load after the jump and push content around: keep the landing spot (or the bottom) in place.
 new ResizeObserver(() => { if (state.anchor) scrollToEl(state.anchor); else if (state.stick) scrollBottom(true); }).observe(els.thread);
+
+// ---- drafts: what you type belongs to that chat; switching chats keeps it there (and survives a reload).
+const DRAFTS_KEY = 'cc-drafts';
+const draftsAll = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}'); } catch { return {}; } };
+function saveDraft() {
+  if (!state.botId) return;
+  const all = draftsAll(), v = els.input.value;
+  if (v.trim()) all[state.botId] = v; else delete all[state.botId];
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch {}
+}
+function loadDraft() { els.input.value = draftsAll()[state.botId] || ''; autosize(); }
+let draftTimer = null;
+els.input.addEventListener('input', () => { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400); });
+// Cmd/Ctrl+Enter also sends from a card's "Other…" box.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+  const ta = e.target.closest?.('.dec-other textarea'); if (!ta) return;
+  e.preventDefault(); ta.closest('.dec-other').querySelector('[data-send]')?.click();
+});
