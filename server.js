@@ -441,6 +441,22 @@ const seenLimits = {}; // latest rate-limit event per window, from Bot streams
 const pct = (u) => (u == null ? null : u <= 1 ? Math.round(u * 1000) / 10 : Math.round(u * 10) / 10);
 function noteRateLimit(info) { const k = info.rateLimitType || 'five_hour'; seenLimits[k] = { utilization: pct(info.utilization), resetsAt: info.resetsAt ? (info.resetsAt < 1e12 ? info.resetsAt * 1000 : info.resetsAt) : null, status: info.status, at: Date.now() }; }
 const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
+// The service's setup-token may only allow inference, so it cannot read the account or the plan usage page.
+// The full `claude login` (Keychain) can. For the account menu only, ask a short-lived Claude Code session that
+// uses that login: no tools, no Bot work, closed right after. Falls back quietly when the Keychain is not readable.
+async function keychainAccountProbe() {
+  const env = childEnv(); for (const k of Object.keys(env)) if (/^CLAUDE_CODE_OAUTH/.test(k)) delete env[k];
+  const abort = new AbortController(); let release; const hold = new Promise((r) => { release = r; });
+  const q = query({ prompt: (async function* () { await hold; })(), options: { env, cwd: HOME, abortController: abort, settingSources: [], mcpServers: {}, allowedTools: [], permissionMode: 'default' } });
+  try {
+    const [info, usage] = await Promise.all([
+      withTimeout(q.accountInfo(), 20000).catch(() => ({})),
+      withTimeout(q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }), 25000).catch(() => null),
+    ]);
+    return { info: info || {}, usage };
+  } finally { release(); abort.abort(); }
+}
+let probeCache = null;
 let accountCache = null;
 async function accountSummary() {
   if (accountCache && Date.now() - accountCache.at < 60e3) return accountCache.data;
@@ -458,6 +474,18 @@ async function accountSummary() {
       }
     } catch {}
     rt.scheduleIdle();
+  }
+  if (!limits.length || !info.email) {
+    try {
+      if (!probeCache || Date.now() - probeCache.at > 5 * 60e3) probeCache = { at: Date.now(), data: await keychainAccountProbe() };
+      const { info: pi, usage: pu } = probeCache.data;
+      if (!info.email && pi.email) info = { ...pi, ...Object.fromEntries(Object.entries(info).filter(([, v]) => v)) };
+      if (!limits.length && pu?.rate_limits_available && pu.rate_limits) {
+        for (const [k, v] of Object.entries(pu.rate_limits)) if (LIMIT_LABELS[k] && v && v.utilization != null) limits.push({ key: k, label: LIMIT_LABELS[k], utilization: pct(v.utilization / 100), resetsAt: v.resets_at ? Date.parse(v.resets_at) : null });
+        for (const m of pu.rate_limits.model_scoped || []) if (m.utilization != null) limits.push({ key: 'model:' + m.display_name, label: `This week · ${m.display_name}`, utilization: pct(m.utilization / 100), resetsAt: m.resets_at ? Date.parse(m.resets_at) : null });
+        if (limits.length) source = 'plan';
+      }
+    } catch (e) { console.error('[account probe]', e.message); }
   }
   if (!limits.length) { for (const [k, v] of Object.entries(seenLimits)) if (v.utilization != null) limits.push({ key: k, label: LIMIT_LABELS[k] || k, utilization: v.utilization, resetsAt: v.resetsAt, seenAt: v.at }); if (limits.length) source = 'replies'; }
   const order = ['five_hour', 'seven_day']; limits.sort((a, b) => ((order.indexOf(a.key) + 1) || 9) - ((order.indexOf(b.key) + 1) || 9));
