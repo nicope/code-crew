@@ -1,14 +1,22 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
-const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf))(?=$|[\s`"')\]>.,;:!?])/gi;
+const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
 const fileUrl = (p) => `/api/bots/${state.botId}/file?path=${encodeURIComponent(p)}${state.mediaKey ? `&k=${state.mediaKey}` : token ? `&token=${encodeURIComponent(token)}` : ''}`;
+const DOC_EXT = /^(md|markdown|txt|csv)$/;
+const DOC_ICON = '<svg width="22" height="26" viewBox="0 0 22 26" fill="none"><path d="M3 1.5h10.5L20.5 8.5V23a1.5 1.5 0 01-1.5 1.5H3A1.5 1.5 0 011.5 23V3A1.5 1.5 0 013 1.5z" stroke="currentColor" stroke-width="1.4"/><path d="M13.5 1.5V7a1.5 1.5 0 001.5 1.5h5.5M6 13h10M6 17h10M6 21h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+// A document the Bot wrote: a card in the chat; tap to read it in a sheet, share it from there.
+function docCard(p, caption = '') {
+  const name = p.split('/').pop(), ext = name.split('.').pop().toUpperCase();
+  return `<a class="doc-card" href="${esc(fileUrl(p))}" data-doc="${esc(p)}"><span class="doc-icon">${DOC_ICON}</span><span class="doc-text"><span class="doc-name">${esc(caption && caption !== name ? caption : name.replace(/\.[^.]+$/, ''))}</span><span class="doc-meta" data-ext="${esc(ext)}">${esc(ext)}</span></span></a>`;
+}
 function mediaTag(p, caption = '') {
   const ext = p.split('.').pop().toLowerCase(), name = p.split('/').pop(), u = fileUrl(p);
   if (/^(mp4|m4v|mov|webm)$/.test(ext)) return `<figure class="media"><video controls playsinline preload="metadata" src="${esc(u)}#t=0.1"></video><figcaption>${esc(caption || name)}</figcaption></figure>`;
   if (/^(mp3|wav|m4a)$/.test(ext)) return `<figure class="media"><audio controls preload="metadata" src="${esc(u)}"></audio><figcaption>${esc(caption || name)}</figcaption></figure>`;
+  if (DOC_EXT.test(ext)) return docCard(p, caption);
   if (ext === 'pdf') return `<a class="file-link" href="${esc(u)}" target="_blank" rel="noopener">📄 ${esc(caption || name)}</a>`;
   return `<figure class="media"><a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(caption || name)}" loading="lazy"></a><figcaption>${esc(caption || name)}</figcaption></figure>`;
 }
@@ -19,7 +27,7 @@ function withMedia(t) {
   return lines.map((line) => {
     if (/^\s*(```|~~~)/.test(line)) { fence = !fence; return line; }
     if (fence) return line;
-    const EXT = 'png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf';
+    const EXT = 'png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv';
     // markdown image or link with a local path (spaces allowed inside the parentheses)
     line = line.replace(new RegExp(`!?\\[([^\\]]*)\\]\\((\\/[^)]+?\\.(?:${EXT}))\\)`, 'gi'), (_, cap, p) => `\n\n${mediaTag(p.replace(/\\ /g, ' ').replace(/%20/g, ' '), cap)}\n\n`);
     // a whole line that is just a path (spaces allowed)
@@ -29,7 +37,7 @@ function withMedia(t) {
     return line.replace(MEDIA_RE, (full, p) => `\n\n${mediaTag(p.replace(/\\ /g, ' '))}\n\n`);
   }).join('\n');
 }
-const PURIFY = { ADD_TAGS: ['video', 'audio', 'source', 'figure', 'figcaption'], ADD_ATTR: ['controls', 'playsinline', 'preload', 'poster', 'loading', 'target'] };
+const PURIFY = { ADD_TAGS: ['video', 'audio', 'source', 'figure', 'figcaption'], ADD_ATTR: ['controls', 'playsinline', 'preload', 'poster', 'loading', 'target', 'data-doc'] };
 const renderMd = (t, { media = true } = {}) => enhanceLinks(DOMPurify.sanitize(marked.parse(media ? withMedia(t || '') : (t || '')), PURIFY));
 // Links: "#123" and "owner/repo#123" become pull-request links (the Bot's own repo fills in the bare form), and every
 // external link gets the site's favicon in front so you can see where it goes before tapping.
@@ -831,3 +839,36 @@ els.acctClose.onclick = () => els.accountDialog.close();
 els.accountDialog.addEventListener('click', (e) => { if (e.target === els.accountDialog) els.accountDialog.close(); });
 els.acctUsageRow.onclick = () => els.acctUsageDetail.classList.toggle('hidden');
 loadAccount();
+
+// ---- document viewer: tap a doc card → read it in a sheet (Markdown rendered), share or download from there
+const fmtBytes = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+const docSizeSeen = new Map();
+function fillDocSizes(root = document) {
+  for (const meta of root.querySelectorAll('.doc-card .doc-meta:not([data-sized])')) {
+    meta.dataset.sized = '1'; const href = meta.closest('.doc-card').getAttribute('href');
+    const done = (n) => { if (n != null) meta.textContent = `${meta.dataset.ext} · ${fmtBytes(n)}`; };
+    if (docSizeSeen.has(href)) { done(docSizeSeen.get(href)); continue; }
+    fetch(href, { headers: { Range: 'bytes=0-0', ...(token ? { 'x-cc-token': token } : {}) } }).then((r) => { const total = Number((r.headers.get('content-range') || '').split('/')[1]); if (total) { docSizeSeen.set(href, total); done(total); } }).catch(() => {});
+  }
+}
+new MutationObserver(() => fillDocSizes()).observe(els.thread, { childList: true, subtree: true });
+let docOpen = null;
+async function openDoc(card) {
+  const href = card.getAttribute('href'), p = card.dataset.doc, name = p.split('/').pop(), ext = name.split('.').pop().toLowerCase();
+  els.docTitle.textContent = name; els.docBody.innerHTML = '<p class="muted">Loading…</p>'; els.docDialog.showModal(); els.docBody.scrollTop = 0;
+  try {
+    const r = await fetch(href, { headers: token ? { 'x-cc-token': token } : {} }); if (!r.ok) throw new Error(r.status === 404 ? 'the file is gone' : r.status === 403 ? "it is outside this Bot's folder" : r.statusText);
+    const text = await r.text(); docOpen = { name, text, type: r.headers.get('content-type') || 'text/plain' };
+    if (ext === 'md' || ext === 'markdown') { els.docBody.className = 'doc-body md'; els.docBody.innerHTML = renderMd(text, { media: false }); els.docBody.querySelectorAll('pre code').forEach((c) => hljs.highlightElement(c)); const dir = p.slice(0, p.lastIndexOf('/')); for (const img of els.docBody.querySelectorAll('img[src]')) { const src = img.getAttribute('src'); if (!/^(https?:|data:|\/api\/)/.test(src)) img.src = fileUrl(src.startsWith('/') ? src : `${dir}/${src.replace(/^\.\//, '')}`); } }
+    else if (ext === 'json') { let pretty = text; try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch {} els.docBody.className = 'doc-body md'; els.docBody.innerHTML = renderMd('```json\n' + pretty + '\n```', { media: false }); }
+    else { els.docBody.className = 'doc-body'; els.docBody.innerHTML = `<pre class="plain">${esc(text)}</pre>`; }
+  } catch (e) { els.docBody.innerHTML = `<p class="muted">Could not open it: ${esc(e.message)}</p>`; docOpen = null; }
+}
+document.addEventListener('click', (e) => { const card = e.target.closest('.doc-card'); if (!card) return; e.preventDefault(); openDoc(card); });
+els.docClose.onclick = () => els.docDialog.close();
+els.docShare.onclick = async () => {
+  if (!docOpen) return;
+  const file = new File([docOpen.text], docOpen.name, { type: docOpen.name.endsWith('.md') ? 'text/markdown' : 'text/plain' });
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: docOpen.name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: docOpen.name }); document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};

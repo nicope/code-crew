@@ -3,3 +3,13 @@ node_modules/
 *.log
 .DS_Store
 .env
+
+# runtime secrets and state (live in the data dir, never in the repo)
+oauth-token
+store.json
+vault.json
+config.json
+vapid*.json
+*.pem
+.env.*
+attachments/
