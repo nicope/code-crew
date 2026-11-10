@@ -954,18 +954,18 @@ function paintDecision(el, d, inbox = el.classList.contains('inbox')) {
   if (inbox && d.status === 'open' && !decExpanded.has(d.id)) {
     const bot = state.bots.find((b) => b.id === d.botId);
     el.classList.add('compact'); el.classList.remove('answered');
-    el.innerHTML = `<div class="dec-line"><span class="dec-icon">◆</span><span class="dec-line-text"><b>${esc(bot?.name || 'A Bot')}</b> ${esc(d.question || '')}</span><span class="dec-ago">${esc(fmtAgo(d.createdAt))}</span><button class="dec-x" title="Dismiss" aria-label="Dismiss">✕</button></div>`;
-    el.onclick = (e) => { if (e.target.closest('.dec-x')) return dismissDecision(el, d); decExpanded.add(d.id); el.onclick = null; paintDecision(el, d, true); };
+    el.innerHTML = `<div class="dec-line"><span class="dec-icon">◆</span><span class="dec-line-text"><b>${esc(bot?.name || 'A Bot')}</b> ${esc(d.question || '')}</span><span class="dec-ago">${esc(fmtAgo(d.createdAt))}</span><button class="dec-x" title="Dismiss" aria-label="Dismiss">✕</button></div>${(d.options || []).length === 2 ? `<div class="dec-quick">${d.options.map((o, i) => `<button class="dq${i === 0 ? ' yes' : ' no'}${i === d.recommended ? ' rec' : ''}" data-i="${i}">${esc(o)}</button>`).join('')}</div>` : ''}`;
+    el.onclick = (e) => { if (e.target.closest('.dec-x')) return dismissDecision(el, d); const q = e.target.closest('.dq'); if (q) { el.classList.add('leaving'); return setTimeout(() => decide(d, { choice: +q.dataset.i }), 160); } decExpanded.add(d.id); el.onclick = null; paintDecision(el, d, true); };
     return;
   }
   el.classList.remove('compact'); el.onclick = null;
   const bot = state.bots.find((b) => b.id === d.botId);
   const open = d.status === 'open', opts = d.options || [];
-  const done = d.status === 'answered' ? `✓ Decided: <b>${esc(d.answer)}</b>${d.note ? ` · “${esc(d.note)}”` : ''}` : d.status === 'dismissed' ? 'Dismissed' : d.status === 'posting' ? 'Posting…' : 'This card is no longer open';
+  const done = d.status === 'replied' ? '↩ Answered in the chat' : d.status === 'answered' ? `✓ Decided: <b>${esc(d.answer)}</b>${d.note ? ` · “${esc(d.note)}”` : ''}` : d.status === 'dismissed' ? 'Dismissed' : d.status === 'posting' ? 'Posting…' : 'This card is no longer open';
   el.classList.toggle('answered', !open);
   el.innerHTML = `<div class="dec-head"><span class="dec-icon">◆</span><span>${inbox ? `<b>${esc(bot?.name || 'A Bot')}</b> · ` : ''}Decision</span>${inbox ? '<span class="dec-ago">' + esc(fmtAgo(d.createdAt)) + '</span>' : ''}</div>
     <div class="dec-q">${esc(d.question || '')}</div>${d.context ? `<div class="dec-ctx md">${renderMd(d.context, { media: false })}</div>` : ''}
-    ${open ? `<div class="dec-opts">${opts.map((o, i) => `<button class="pill${i === d.recommended ? ' primary' : ''}" data-i="${i}">${esc(o)}${i === d.recommended ? ' <span class="dec-rec">recommended</span>' : ''}</button>`).join('')}<button class="pill ghost" data-other>Other…</button></div>
+    ${open ? `<div class="dec-opts${opts.length === 2 ? ' two' : ''}">${opts.map((o, i) => `<button class="pill${i === d.recommended ? ' primary' : ''}" data-i="${i}">${esc(o)}${i === d.recommended ? ' <span class="dec-rec">recommended</span>' : ''}</button>`).join('')}<button class="pill ghost" data-other>Other…</button></div>
     <div class="dec-other hidden"><textarea rows="2" placeholder="Your answer, or a note to send with an option"></textarea><div class="dec-other-actions"><button class="pill primary" data-send>Send</button><button class="pill ghost" data-dismiss>Dismiss card</button></div></div>` : `<div class="dec-done">${done}</div>`}`;
   if (inbox) el.querySelector('.dec-head').innerHTML += '<button class="dec-collapse" title="Collapse">▴</button><button class="dec-x" title="Dismiss" aria-label="Dismiss">✕</button>';
   if (inbox) el.querySelector('.dec-head').onclick = (e) => { if (e.target.closest('.dec-x')) return dismissDecision(el, d); if (e.target.closest('.dec-collapse')) { decExpanded.delete(d.id); paintDecision(el, d, true); } else openBot(d.botId); };

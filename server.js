@@ -245,9 +245,9 @@ function botsMcpServer(self) {
       tool('decision_card', 'Ask the user to decide something by posting a decision card they answer with one tap (it also reaches their phone as a notification). Use it instead of asking in prose whenever you need a choice: merge or hold a PR, option A or B, go or no-go. One decision per card; give 2 to 4 short options and mark the one you recommend. Do not wait for the answer: post it, finish or continue other work, and the choice arrives later as a message starting with [Decision].', {
         question: z.string().describe('The decision, as a short question, e.g. "Merge Metros #92 (install-wizard login fix)?"'),
         context: z.string().optional().describe('Two or three lines of markdown with what the user needs to decide: what it is, the risk, what you verified'),
-        options: z.array(z.string()).min(2).max(4).describe('Short button labels, e.g. ["Merge", "Fix first", "Close"]'),
+        options: z.array(z.string()).min(2).max(4).optional().describe('Short button labels, e.g. ["Merge", "Fix first", "Close"]. Leave out for a plain yes/no question: it becomes Yes / No buttons, the easiest card to answer. Prefer yes/no when the question allows it.'),
         recommended: z.number().int().min(0).max(3).optional().describe('Index of the option you recommend'),
-      }, async ({ question, context, options, recommended }) => {
+      }, async ({ question, context, options = ['Yes', 'No'], recommended }) => {
         const d = { id: randomUUID().slice(0, 8), botId: self.id, question: String(question).slice(0, 300), context: String(context || '').slice(0, 2000), options: options.map((o) => String(o).slice(0, 60)), recommended: recommended != null && recommended < options.length ? recommended : null, status: 'open', createdAt: Date.now() };
         store.decisions.push(d); save(); broadcastBots();
         notify({ title: `${self.name} needs a decision`, body: d.question, tag: `dec-${d.id}`, url: `/?bot=${self.id}` });
@@ -274,7 +274,7 @@ function identityPrompt(bot) {
     `# Other Bots`,
     others.length ? `Other Bots you can message with the message_bot tool: ${others.join('; ')}. Hand off work that fits another Bot's job better, and say so to the user.` : `There are no other Bots yet.`,
     `# Decisions`,
-    `When you need the user to choose (merge or hold, A or B, go or no-go), post a decision card with the decision_card tool instead of asking in prose: one decision per card, 2 to 4 short options, your recommendation marked. Don't block on it. The answer arrives as a message starting with [Decision]; act on it.`,
+    `When you need the user to choose (merge or hold, A or B, go or no-go), post a decision card with the decision_card tool instead of asking in prose: one decision per card, 2 to 4 short options, your recommendation marked. Don't block on it. The answer arrives as a message starting with [Decision]; act on it. If the user writes to you in the chat instead, their message answers (and closes) your open cards: read it as the answer.`,
     `# Messages that start with [Routine: …] are scheduled runs you were given; do the task and report briefly. A message starting with [Mentioned by the user in Bot "X"'s conversation] was typed by the user in another Bot's chat with your @name: do what is asked, then send your answer to Bot X with message_bot so it appears in that conversation, and keep your own reply here to one line. If there is nothing worth saying, reply with one line. A message starting with [From your thread "T"] is the user sharing something from your side thread T into this main conversation; take it into account here. Messages that start with [Message from Bot "…"] come from another Bot; act on them and reply to the user, not to the Bot, unless a reply to the Bot is needed.`,
   ].join('\n');
 }
@@ -854,6 +854,10 @@ wss.on('connection', (ws, req) => {
           const files = (Array.isArray(m.attachments) ? m.attachments : []).filter((f) => typeof f === 'string' && f.startsWith(path.join(bot.cwd, 'attachments') + path.sep)).slice(0, 20);
           if (files.length) text = `${text}\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}`.trim();
           const mentioned = mentionsIn(text, bot);
+          if (text && !bot.threadOf) { // writing in the chat answers that Bot's open cards: close them so the inbox stays clean
+            let n = 0; for (const d of store.decisions) if (d.botId === bot.id && d.status === 'open') { Object.assign(d, { status: 'replied', answer: 'Replied in chat', answeredAt: Date.now() }); n++; }
+            if (n) { save(); broadcastBots(); }
+          }
           if (text) getRuntime(bot.id).enqueue(mentioned.length ? `${text}\n\n[The user also addressed this to ${mentioned.map((b) => `Bot "${b.name}"`).join(' and ')}; they received it and will answer you with message_bot. Do your own part only and coordinate instead of duplicating their work.]` : text, { origin: 'user', from: ws });
           for (const other of mentioned) getRuntime(other.id).enqueue(`[Mentioned by the user in Bot "${bot.name}"'s conversation]\n${text}`, { origin: 'user' });
           break;
