@@ -380,3 +380,19 @@ button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: t
 .dec-collapse { margin-left: 8px; background: none; border: 0; color: var(--muted); font-size: 14px; cursor: pointer; padding: 0 2px; }
 .decision-list .decision:not(.compact) .dec-ctx { max-height: 9.5em; overflow-y: auto; }
 .decision-list { max-height: 45vh; }
+
+/* message actions */
+.msg-actions { display: flex; gap: 2px; margin-top: 4px; }
+.msg-actions button { background: none; border: 0; color: var(--faint); padding: 6px; border-radius: 8px; cursor: pointer; display: inline-flex; }
+.msg-actions button:hover { color: var(--text); background: var(--raised); }
+.msg.user .msg-actions { justify-content: flex-end; visibility: hidden; height: 0; margin: 0; overflow: hidden; }
+.msg.user:hover .msg-actions, .msg.user.show-actions .msg-actions { visibility: visible; height: auto; margin-top: 2px; overflow: visible; }
+.reactions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; } .reactions:empty { display: none; }
+.reaction { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 999px; padding: 2px 9px; font-size: 15px; cursor: pointer; }
+.msg-menu { position: fixed; z-index: 60; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 5px; box-shadow: 0 8px 28px rgba(0,0,0,.35); min-width: 190px; }
+.msg-menu button { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; color: var(--text); padding: 9px 10px; border-radius: 8px; font-size: 14px; text-align: left; cursor: pointer; }
+.msg-menu button svg { color: var(--muted); flex-shrink: 0; }
+.msg-menu button:hover { background: var(--raised-2); }
+.msg-menu.emojis { display: flex; min-width: 0; padding: 4px; }
+.msg-menu.emojis button { font-size: 20px; padding: 6px 7px; width: auto; justify-content: center; }
+.bubble .quote { border-left: 3px solid var(--faint); padding: 2px 0 2px 9px; margin-bottom: 6px; color: var(--muted); font-size: .92em; white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }

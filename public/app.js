@@ -98,7 +98,7 @@ const avatarSvg = (shape, color, initial = '') => `<svg viewBox="0 0 100 100" ar
 const setAvatar = (el, bot) => { el.innerHTML = avatarSvg(bot.shape, bot.color, bot.name); };
 
 // ---- state ----
-const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, decisions: [], dirs: [], defaultDir: '' };
+const state = { ws: null, reconnectTimer: null, lastMsgAt: 0, bots: [], botId: null, busy: false, turn: null, toolsById: new Map(), replaying: false, decisions: [], reactions: {}, dirs: [], defaultDir: '' };
 const currentBot = () => state.bots.find((b) => b.id === state.botId);
 
 // ---- websocket ----
@@ -138,6 +138,7 @@ function handle(m) {
   if (m.botId && m.botId !== state.botId) return; // another bot's stream
   switch (m.type) {
     case 'history': {
+      state.reactions = m.reactions || {};
       resetThread();
       replayHistory(m.messages || []);
       for (const msg of m.live || []) onSdk(msg);
@@ -149,6 +150,7 @@ function handle(m) {
     }
     case 'sdk': onSdk(m.msg); break;
     case 'permission_request': showPermission(m); break;
+    case 'reactions': state.reactions[m.key] = m.list; document.querySelectorAll(`.reactions[data-key="${CSS.escape(m.key)}"]`).forEach((r) => paintReactions(r, m.key)); break;
     case 'permission_resolved': { const c = document.querySelector(`.perm[data-id="${m.id}"]`); if (c && !c.classList.contains('answered')) { c.classList.add('answered'); c.querySelector('.perm-title').textContent += m.behavior === 'allow' ? ' — allowed' : ' — not approved'; } break; }
     case 'error': ensureTurn(); addError(m.error); break;
   }
@@ -160,7 +162,7 @@ function onSdk(msg) {
   switch (msg.type) {
     case 'system': if (msg.subtype === 'init' && msg.model) els.busyLabel.dataset.model = msg.model.replace(/^claude-/, ''); break;
     case 'stream_event': onStream(msg.event); break;
-    case 'assistant': onAssistant(msg.message); break;
+    case 'assistant': onAssistant(msg.message); if (state.turn && msg.uuid) state.turn.uuid = msg.uuid; break;
     case 'user': onUserMsg(msg); break;
     case 'result': onResult(msg); break;
     case 'tool_progress': { const rec = state.toolsById.get(msg.tool_use_id); if (rec?.time) rec.time.textContent = fmtDur(msg.elapsed_time_seconds * 1000); break; }
@@ -187,6 +189,7 @@ function finishTurn(result) {
   if (t.stepCount === 0 && !t.steps.children.length) t.activity.remove();
   else { const steps = `${t.stepCount} step${t.stepCount === 1 ? '' : 's'}`; const dur = result ? fmtDur(result.duration_ms) : state.replaying ? null : fmtDur(Date.now() - t.started); t.sumText.textContent = dur ? `Worked for ${dur} · ${steps}` : steps; }
   for (const s of t.steps.querySelectorAll('.step.running')) s.classList.remove('running');
+  if (t.textEl?.dataset.raw && !t.el.querySelector(':scope > .msg-actions')) addMsgActions(t.el, { raw: t.textEl.dataset.raw, key: t.uuid, md: t.textEl });
   state.turn = null;
 }
 function addStep(t, { cls = '', verb, arg = '', body = '' }) {
@@ -352,8 +355,12 @@ function addUserBubble(text) {
   let files = [];
   if ((m = text.match(/^([\s\S]*?)\n*\[Attached files\]\n([\s\S]*)$/))) { text = m[1].trim(); files = m[2].split('\n').map((l) => l.replace(/^- /, '').trim()).filter(Boolean); }
   const u = document.createElement('div'); u.className = 'msg user';
+  const rawText = text; let quote = '';
+  if ((m = text.match(/^((?:> ?[^\n]*\n?)+)\n*([\s\S]*)$/))) { quote = m[1].replace(/^> ?/gm, '').trim(); text = m[2]; }
   const isMedia = (f) => /\.(png|jpe?g|gif|webp|mp4|m4v|mov|webm|m4a|mp3|wav)$/i.test(f);
-  u.innerHTML = `${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
+  u.innerHTML = `${fromChat ? `<div class="muted small" style="text-align:right;margin-bottom:2px">You, in ${esc(fromChat)}'s chat</div>` : ''}<div class="bubble">${quote ? `<div class="quote">${esc(quote)}</div>` : ''}${mentionChips(esc(text))}${files.map((f) => isMedia(f) ? `<div class="thumb">${mediaTag(f)}</div>` : `<span class="attach" title="${esc(f)}"><span class="name">${esc(f.split('/').pop())}</span></span>`).join('')}</div>`;
+  addMsgActions(u, { raw: rawText, user: true });
+  u.querySelector('.bubble').addEventListener('click', (e) => { if (!e.target.closest('a, video, img, .attach')) u.classList.toggle('show-actions'); });
   els.thread.appendChild(u);
 }
 function replayHistory(messages) {
@@ -368,7 +375,7 @@ function replayHistory(messages) {
         finishTurn(); addUserBubble(text);
       }
       if (Array.isArray(content)) onUserMsg(m);
-    } else if (m.type === 'assistant') onAssistant(m.message);
+    } else if (m.type === 'assistant') { onAssistant(m.message); if (state.turn && m.uuid) state.turn.uuid = m.uuid; }
   }
   finishTurn(); state.replaying = false;
 }
@@ -946,4 +953,63 @@ function renderDecisions() {
   list.classList.toggle('hidden', !open.length);
   document.querySelectorAll('#thread .decision[data-id]').forEach(refreshDecisionEl);
   const n = pendingTotal() + open.length; document.title = n ? `(${n}) Code Crew` : 'Code Crew';
+}
+
+
+// ---- message actions (react · reply · more), like Slack/Claude: under every reply, on hover/tap for your own messages.
+const REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅', '🙏', '🔥'];
+const ICONS = {
+  react: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg>',
+  reply: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></svg>',
+  more: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+  copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+};
+function addMsgActions(el, { raw, key, md, user }) {
+  if (key) { const r = document.createElement('div'); r.className = 'reactions'; r.dataset.key = key; el.appendChild(r); paintReactions(r, key); }
+  const bar = document.createElement('div'); bar.className = 'msg-actions';
+  bar.innerHTML = `${key ? `<button data-a="react" title="React">${ICONS.react}</button>` : ''}<button data-a="reply" title="Reply">${ICONS.reply}</button><button data-a="more" title="More">${ICONS.more}</button>`;
+  bar.onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
+    if (b.dataset.a === 'reply') return quoteReply(raw);
+    const plain = () => (md || el.querySelector('.bubble'))?.innerText.trim() || raw;
+    const items = b.dataset.a === 'react'
+      ? REACTIONS.map((x) => ({ emoji: x, run: () => wsSend({ type: 'react', botId: state.botId, key, emoji: x }) }))
+      : [{ label: 'Copy', run: () => copyText(raw) }, ...(md ? [{ label: 'Copy as plain text', run: () => copyText(plain()) }] : []), ...(key ? [{ label: 'Copy message ID', run: () => copyText(key) }] : [])];
+    openMsgMenu(b, items, b.dataset.a === 'react');
+  };
+  el.appendChild(bar);
+}
+function paintReactions(r, key) {
+  const list = state.reactions[key] || [];
+  r.innerHTML = list.map((x) => `<button class="reaction" data-e="${x}" title="Remove">${x}</button>`).join('');
+  r.onclick = (e) => { const b = e.target.closest('.reaction'); if (b) wsSend({ type: 'react', botId: state.botId, key, emoji: b.dataset.e }); };
+}
+let msgMenu = null;
+function closeMsgMenu() { msgMenu?.remove(); msgMenu = null; }
+function openMsgMenu(anchor, items, emojis) {
+  closeMsgMenu();
+  msgMenu = document.createElement('div'); msgMenu.className = 'msg-menu' + (emojis ? ' emojis' : '');
+  msgMenu.innerHTML = items.map((it, i) => `<button data-i="${i}">${emojis ? it.emoji : `${ICONS.copy}<span>${esc(it.label)}</span>`}</button>`).join('');
+  msgMenu.onclick = async (e) => {
+    const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
+    const it = items[+b.dataset.i]; const ok = await it.run();
+    if (!emojis && ok !== false) { try { navigator.vibrate?.(15); } catch {} b.querySelector('span').textContent = 'Copied'; setTimeout(closeMsgMenu, 450); } else closeMsgMenu();
+  };
+  document.body.appendChild(msgMenu);
+  const a = anchor.getBoundingClientRect(), w = msgMenu.offsetWidth, h = msgMenu.offsetHeight;
+  const left = Math.min(Math.max(8, a.left), window.innerWidth - w - 8);
+  const top = a.bottom + 6 + h > window.innerHeight - 8 ? a.top - h - 6 : a.bottom + 6;
+  msgMenu.style.left = `${left}px`; msgMenu.style.top = `${top}px`;
+}
+document.addEventListener('click', (e) => { if (msgMenu && !e.target.closest('.msg-menu')) closeMsgMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMsgMenu(); });
+els.scroll?.addEventListener('scroll', closeMsgMenu, { passive: true });
+function quoteReply(raw) {
+  let q = String(raw).trim().replace(/\n\[Attached files\][\s\S]*$/, '');
+  if (q.length > 400) q = q.slice(0, 400).replace(/\s+\S*$/, '') + ' …';
+  const quoted = q.split('\n').map((l) => `> ${l}`).join('\n');
+  const rest = els.input.value.replace(/^(?:> [^\n]*\n)+\n*/, '');
+  els.input.value = `${quoted}\n\n${rest}`;
+  autosize(); els.input.focus(); els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
+  els.input.dispatchEvent(new Event('input'));
 }

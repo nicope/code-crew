@@ -174,7 +174,9 @@ const store = { bots: [], routines: [], push: [], decisions: [] };
 try { Object.assign(store, JSON.parse(fs.readFileSync(STORE, 'utf8'))); } catch {}
 for (const b of store.bots) b.turns ||= []; // messages queued or in flight, kept so a restart cannot lose them
 store.decisions ||= [];
+store.reactions ||= {}; // botId -> { messageUuid: ['👍', …] }, shown under replies; just for the user, not sent to the Bot
 // Decision cards: a Bot asks the user to pick one option; the answer comes back to it as a message. Open cards stay until answered; answered ones are kept two weeks so the chat can show what was decided.
+const REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅', '🙏', '🔥'];
 const DECISION_KEEP_MS = 14 * 24 * 3600 * 1000;
 const visibleDecisions = () => { const cut = Date.now() - DECISION_KEEP_MS; store.decisions = store.decisions.filter((d) => d.status === 'open' || (d.answeredAt || 0) > cut); return store.decisions; };
 let saveTimer = null;
@@ -783,7 +785,7 @@ wss.on('connection', (ws, req) => {
           current = getRuntime(bot.id); current.subscribe(ws);
           let messages = [];
           if (bot.sessionId) { try { messages = await getSessionMessages(bot.sessionId, { dir: bot.cwd }); } catch {} if (!messages.length) { try { messages = await getSessionMessages(bot.sessionId); } catch {} } }
-          reply({ type: 'history', botId: bot.id, messages, live: current.turnBuffer, busy: current.busy, pending: [...current.pending.values()].map((p) => p.req) });
+          reply({ type: 'history', botId: bot.id, messages, live: current.turnBuffer, busy: current.busy, pending: [...current.pending.values()].map((p) => p.req), reactions: store.reactions[bot.id] || {} });
           break;
         }
         case 'unsubscribe': current?.unsubscribe(ws); current = null; break;
@@ -798,6 +800,15 @@ wss.on('connection', (ws, req) => {
         }
         case 'interrupt': await runtimes.get(bot.id)?.interrupt(); break;
         case 'permission': runtimes.get(bot.id)?.answerPermission(m.id, !!m.allow, !!m.always, m.value); break;
+        case 'react': {
+          const key = String(m.key || '').slice(0, 64), emoji = String(m.emoji || '');
+          if (!key || !REACTIONS.includes(emoji)) break;
+          const map = (store.reactions[bot.id] ||= {}); const list = new Set(map[key] || []);
+          list.has(emoji) ? list.delete(emoji) : list.add(emoji);
+          if (list.size) map[key] = [...list]; else delete map[key];
+          save(); runtimes.get(bot.id)?.broadcast({ type: 'reactions', botId: bot.id, key, list: map[key] || [] });
+          break;
+        }
         case 'decide': {
           const d = store.decisions.find((x) => x.id === m.id && x.botId === bot.id); if (!d || d.status !== 'open') break;
           const note = typeof m.note === 'string' ? m.note.trim().slice(0, 2000) : '';
