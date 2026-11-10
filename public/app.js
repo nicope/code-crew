@@ -12,8 +12,9 @@ function docCard(p, caption = '') {
   const name = p.split('/').pop(), ext = name.split('.').pop().toUpperCase();
   return `<a class="doc-card" href="${esc(fileUrl(p))}" data-doc="${esc(p)}"><span class="doc-icon">${DOC_ICON}</span><span class="doc-text"><span class="doc-name">${esc(caption && caption !== name ? caption : name.replace(/\.[^.]+$/, ''))}</span><span class="doc-meta" data-ext="${esc(ext)}">${esc(ext)}</span></span></a>`;
 }
-function mediaTag(p, caption = '') {
+function mediaTag(p, caption = '', inline = false) {
   const ext = p.split('.').pop().toLowerCase(), name = p.split('/').pop(), u = fileUrl(p);
+  if (inline && /^(png|jpe?g|gif|webp)$/.test(ext)) return `<a class="inline-media" href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${esc(name)}" loading="lazy"><span>${esc(name)}</span></a>`;
   if (/^(mp4|m4v|mov|webm)$/.test(ext)) return `<figure class="media"><video controls playsinline preload="metadata" src="${esc(u)}#t=0.1"></video><figcaption>${esc(caption || name)}</figcaption></figure>`;
   if (/^(mp3|wav|m4a)$/.test(ext)) return `<figure class="media"><audio controls preload="metadata" src="${esc(u)}"></audio><figcaption>${esc(caption || name)}</figcaption></figure>`;
   if (DOC_EXT.test(ext)) return docCard(p, caption);
@@ -32,9 +33,14 @@ function withMedia(t) {
     line = line.replace(new RegExp(`!?\\[([^\\]]*)\\]\\((\\/[^)]+?\\.(?:${EXT}))\\)`, 'gi'), (_, cap, p) => `\n\n${mediaTag(p.replace(/\\ /g, ' ').replace(/%20/g, ' '), cap)}\n\n`);
     // a whole line that is just a path (spaces allowed)
     const whole = line.trim().match(new RegExp(`^(\\/.+?\\.(?:${EXT}))$`, 'i')); if (whole) return `\n\n${mediaTag(whole[1].replace(/\\ /g, ' '))}\n\n`;
-    // path in backticks (spaces allowed), then bare paths (no spaces)
-    line = line.replace(new RegExp('`(\\/[^`]+?\\.(?:' + EXT + '))`', 'gi'), (_, p) => `\n\n${mediaTag(p)}\n\n`);
-    return line.replace(MEDIA_RE, (full, p) => `\n\n${mediaTag(p.replace(/\\ /g, ' '))}\n\n`);
+    // Inside a list item or a sentence the media goes inline, so the list stays a list; on its own it becomes a block.
+    const inList = /^\s*([-*+]|\d+[.)])\s/.test(line);
+    const put = (p) => inList ? mediaTag(p, '', true) : `\n\n${mediaTag(p)}\n\n`;
+    // path in backticks (spaces allowed)
+    line = line.replace(new RegExp('`(\\/[^`]+?\\.(?:' + EXT + '))`', 'gi'), (_, p) => put(p));
+    // bare absolute paths under the usual roots, spaces allowed ("/Users/me/Bots/GF Videos/out/a.jpg")
+    line = line.replace(new RegExp(`(^|[\\s:(])(\\/(?:Users|tmp|private|Volumes|opt|var|home)\\/[^\\n\`"'<>()\\[\\]]*?\\.(?:${EXT}))(?=$|[\\s\`"')\\]>,;!?]|\\.(?:\\s|$))`, 'gi'), (_, pre, p) => `${pre}${put(p.replace(/\\ /g, ' '))}`);
+    return line.replace(MEDIA_RE, (full, p) => put(p.replace(/\\ /g, ' ')));
   }).join('\n');
 }
 const PURIFY = { ADD_TAGS: ['video', 'audio', 'source', 'figure', 'figcaption'], ADD_ATTR: ['controls', 'playsinline', 'preload', 'poster', 'loading', 'target', 'data-doc'] };
