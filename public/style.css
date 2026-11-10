@@ -482,3 +482,6 @@ li > .inline-media, li .inline-media { display: flex; }
 .dec-quick .dq { flex: 1; border-radius: 9px; padding: 7px 8px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--raised-2); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dec-quick .dq.yes { background: color-mix(in srgb, var(--ok, #3fb950) 22%, var(--raised)); border-color: color-mix(in srgb, var(--ok, #3fb950) 45%, transparent); }
 .dec-quick .dq.rec::after { content: ' ★'; font-size: 10px; opacity: .7; }
+
+.msg-menu .unread-dot { width: 8px; height: 8px; margin: 0 4px 0 3px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.msg-menu .mm-bold { font-weight: 700; }

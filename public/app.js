@@ -509,8 +509,9 @@ function updateHead() {
   if (!b) { els.headName.textContent = 'Pick a Bot'; els.headLabel.textContent = ''; els.headAvatar.innerHTML = ''; els.headState.textContent = ''; return; }
   els.headName.textContent = b.isThread ? `🧵 ${b.name}` : b.name; els.headLabel.textContent = b.isThread ? `${b.parentName} · ${b.label}` : b.label || ''; setAvatar(els.headAvatar, b.isThread ? { ...b, name: b.parentName } : b);
   els.btnDetails.classList.toggle('hidden', !!b.isThread); els.alsoMainWrap.classList.toggle('hidden', !b.isThread); els.btnNewThread.classList.toggle('hidden', !!b.isThread);
-  const nThreads = b.isThread ? 0 : state.threads.filter((t) => t.threadOf === b.id).length;
-  els.btnThreads.classList.toggle('hidden', !nThreads); els.threadCount.textContent = nThreads || '';
+  const mine = b.isThread ? [] : state.threads.filter((t) => t.threadOf === b.id), unread = mine.filter((t) => t.unread && t.id !== els.threadPanel?.dataset.id).length;
+  els.btnThreads.classList.toggle('hidden', !mine.length); els.threadCount.textContent = unread || ''; // badge = threads with a reply you haven't opened
+  els.btnThreads.title = unread ? `${unread} thread${unread === 1 ? '' : 's'} with new replies` : 'Threads';
   els.headState.textContent = b.busy ? 'Working…' : b.pendingApprovals ? 'Waiting for your approval' : '';
 }
 // Wide screens: a thread opens in a right-hand panel beside its main chat (Slack-style). The panel is the same app in
@@ -531,6 +532,7 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'cc-open-bot' && e.data.id) { closeThreadPanel(); openBot(e.data.id); }
 });
 function openBot(id) {
+  { const t = threadById(id); if (t?.unread) { t.unread = false; queueMicrotask(updateHead); } }
   const th = threadById(id);
   if (th && wideForPanel()) return openThreadPanel(th);
   if (EMBED && !th && state.botId) return parent.postMessage({ type: 'cc-open-bot', id }, location.origin); // "open main chat" from inside the panel
@@ -1054,7 +1056,7 @@ function closeMsgMenu() { msgMenu?.remove(); msgMenu = null; }
 function openMsgMenu(anchor, items, emojis) {
   closeMsgMenu();
   msgMenu = document.createElement('div'); msgMenu.className = 'msg-menu' + (emojis ? ' emojis' : '');
-  msgMenu.innerHTML = items.map((it, i) => `<button data-i="${i}">${emojis ? it.emoji : `${it.icon ?? ICONS.copy}<span class="mm-text"><span>${esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span>`}</button>`).join('');
+  msgMenu.innerHTML = items.map((it, i) => `<button data-i="${i}">${emojis ? it.emoji : `${it.icon ?? ICONS.copy}<span class="mm-text"><span${it.bold ? ' class="mm-bold"' : ''}>${esc(it.label)}</span>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span>`}</button>`).join('');
   msgMenu.onclick = async (e) => {
     const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
     const it = items[+b.dataset.i]; const ok = await it.run();
@@ -1114,7 +1116,7 @@ function paintThreadRoot() {
 els.btnThreads.onclick = (e) => {
   e.stopPropagation();
   const list = state.threads.filter((t) => t.threadOf === state.botId).sort((a, b) => b.lastActivity - a.lastActivity);
-  openMsgMenu(els.btnThreads, list.map((t) => ({ icon: ICONS.thread, label: t.title || 'New thread', sub: `${t.tldr ? t.tldr + ' · ' : ''}${fmtThreadMeta(t)}`, run: () => openBot(t.id) })));
+  openMsgMenu(els.btnThreads, list.map((t) => ({ icon: t.unread ? '<span class="unread-dot"></span>' : ICONS.thread, label: t.title || 'New thread', bold: t.unread, sub: `${t.tldr ? t.tldr + ' · ' : ''}${fmtThreadMeta(t)}`, run: () => openBot(t.id) })));
 };
 
 // Dismiss from the sidebar in one tap: the card slides away; the Bot is not told (same as "Dismiss card").
