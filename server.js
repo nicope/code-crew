@@ -55,7 +55,7 @@ async function notify({ title, body, tag, url }) {
   const payload = JSON.stringify({ title, body: String(body || '').slice(0, 180), tag, url });
   await Promise.all(store.push.map(async (sub) => {
     try { await webpush.sendNotification(sub, payload, { TTL: 60 * 60, urgency: 'high' }); }
-    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { store.push = store.push.filter((s) => s.endpoint !== sub.endpoint); save(); } else console.error('push failed', e.statusCode || e.message); }
+    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { store.push = store.push.filter((s) => s.endpoint !== sub.endpoint); save(); } else console.error('push failed', e.statusCode || e.message, String(e.body || '').slice(0, 200)); }
   }));
 }
 const toolSummary = (name, input = {}) => name === 'vault' ? `use your “${input.name}” login` : name === 'vault_request' ? `needs a credential: ${input.name}` : name === 'Bash' ? input.command : name === 'Edit' || name === 'Write' || name === 'Read' ? path.basename(String(input.file_path || '')) : name === 'mcp__bots__message_bot' ? `message ${input.to}` : name === 'WebFetch' ? input.url : Object.values(input).find((v) => typeof v === 'string') || '';

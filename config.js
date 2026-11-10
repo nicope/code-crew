@@ -37,7 +37,7 @@ export const config = {
   defaultModel: envOr('CODE_CREW_MODEL', 'CLAUDE_CHAT_MODEL') ?? file.defaultModel ?? 'opus',
   botsDir: envOr('CODE_CREW_BOTS_DIR', 'CLAUDE_CHAT_BOTS_DIR') || file.botsDir || path.join(HOME, 'Bots'),
   oauthTokenFile: envOr('CODE_CREW_OAUTH_TOKEN_FILE', 'CLAUDE_CHAT_OAUTH_TOKEN_FILE') || file.oauthTokenFile || path.join(DATA_DIR, 'oauth-token'),
-  pushSubject: envOr('CODE_CREW_PUSH_SUBJECT', 'CLAUDE_CHAT_PUSH_SUBJECT') || file.pushSubject || 'https://code-crew.invalid',
+  pushSubject: envOr('CODE_CREW_PUSH_SUBJECT', 'CLAUDE_CHAT_PUSH_SUBJECT') || file.pushSubject || 'https://github.com/nicope/code-crew', // Apple rejects placeholder domains (403 BadJwtToken)
   // Folders offered when picking where a Bot works; only the ones that exist are shown.
   dirRoots: file.dirRoots || [HOME, ...['Projects', 'Github', 'GitHub', 'Developer', 'code', 'src', 'repos', 'Documents', 'Desktop'].map((d) => path.join(HOME, d))],
   onePasswordToken: envOr('OP_SERVICE_ACCOUNT_TOKEN') || file.onePasswordToken || '',
