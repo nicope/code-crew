@@ -442,7 +442,7 @@ function autosize() { els.input.style.height = 'auto'; els.input.style.height = 
 const pendingTotal = () => state.bots.reduce((n, b) => n + (b.pendingApprovals || 0), 0);
 function renderBanners() {
   const waiting = state.bots.filter((b) => b.pendingApprovals);
-  document.title = waiting.length ? `(${pendingTotal()}) Bots` : 'Bots';
+  document.title = waiting.length ? `(${pendingTotal()}) Code Crew` : 'Code Crew';
   const html = (list) => list.length ? `<span>⚠︎</span><span><b>${esc(list.map((b) => b.name).join(', '))}</b> ${list.length === 1 ? 'needs' : 'need'} your approval</span><span class="needs-ok">${list.reduce((n, b) => n + b.pendingApprovals, 0)}</span>` : '';
   const show = (el, list) => { el.classList.toggle('hidden', !list.length); el.innerHTML = html(list); el.onclick = () => { openBot(list[0].id); }; };
   show(els.sideBanner, waiting);
@@ -889,8 +889,17 @@ function decisionCard(d, { inbox = false } = {}) {
   el.dataset.bot = d.botId || ''; el._d = d;
   paintDecision(el, d, inbox); return el;
 }
+const decExpanded = new Set(); // inbox cards the user opened; the rest stay one line
 function paintDecision(el, d, inbox = el.classList.contains('inbox')) {
   el._d = d;
+  if (inbox && d.status === 'open' && !decExpanded.has(d.id)) {
+    const bot = state.bots.find((b) => b.id === d.botId);
+    el.classList.add('compact'); el.classList.remove('answered');
+    el.innerHTML = `<div class="dec-line"><span class="dec-icon">◆</span><span class="dec-line-text"><b>${esc(bot?.name || 'A Bot')}</b> ${esc(d.question || '')}</span><span class="dec-ago">${esc(fmtAgo(d.createdAt))}</span></div>`;
+    el.onclick = () => { decExpanded.add(d.id); el.onclick = null; paintDecision(el, d, true); };
+    return;
+  }
+  el.classList.remove('compact'); el.onclick = null;
   const bot = state.bots.find((b) => b.id === d.botId);
   const open = d.status === 'open', opts = d.options || [];
   const done = d.status === 'answered' ? `✓ Decided: <b>${esc(d.answer)}</b>${d.note ? ` · “${esc(d.note)}”` : ''}` : d.status === 'dismissed' ? 'Dismissed' : d.status === 'posting' ? 'Posting…' : 'This card is no longer open';
@@ -899,7 +908,8 @@ function paintDecision(el, d, inbox = el.classList.contains('inbox')) {
     <div class="dec-q">${esc(d.question || '')}</div>${d.context ? `<div class="dec-ctx md">${renderMd(d.context, { media: false })}</div>` : ''}
     ${open ? `<div class="dec-opts">${opts.map((o, i) => `<button class="pill${i === d.recommended ? ' primary' : ''}" data-i="${i}">${esc(o)}${i === d.recommended ? ' <span class="dec-rec">recommended</span>' : ''}</button>`).join('')}<button class="pill ghost" data-other>Other…</button></div>
     <div class="dec-other hidden"><textarea rows="2" placeholder="Your answer, or a note to send with an option"></textarea><div class="dec-other-actions"><button class="pill primary" data-send>Send</button><button class="pill ghost" data-dismiss>Dismiss card</button></div></div>` : `<div class="dec-done">${done}</div>`}`;
-  if (inbox) el.querySelector('.dec-head').onclick = () => openBot(d.botId);
+  if (inbox) el.querySelector('.dec-head').innerHTML += '<button class="dec-collapse" title="Collapse">▴</button>';
+  if (inbox) el.querySelector('.dec-head').onclick = (e) => { if (e.target.closest('.dec-collapse')) { decExpanded.delete(d.id); paintDecision(el, d, true); } else openBot(d.botId); };
   if (!open) return;
   const note = () => el.querySelector('textarea').value.trim();
   el.querySelector('.dec-opts').onclick = (e) => {
@@ -935,5 +945,5 @@ function renderDecisions() {
   }
   list.classList.toggle('hidden', !open.length);
   document.querySelectorAll('#thread .decision[data-id]').forEach(refreshDecisionEl);
-  const n = pendingTotal() + open.length; document.title = n ? `(${n}) Bots` : 'Bots';
+  const n = pendingTotal() + open.length; document.title = n ? `(${n}) Code Crew` : 'Code Crew';
 }
