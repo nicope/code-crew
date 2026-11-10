@@ -176,7 +176,8 @@ for (const b of store.bots) b.turns ||= []; // messages queued or in flight, kep
 store.decisions ||= [];
 store.threads ||= []; // side conversations with a Bot: { id, threadOf, rootKey, rootText, title, tldr, sessionId, forkFrom, turns, … }
 for (const t of store.threads) t.turns ||= [];
-store.reactions ||= {}; // botId -> { messageUuid: ['👍', …] }, shown under replies; just for the user, not sent to the Bot
+store.reactions ||= {};
+store.readMarks ||= {}; // botId -> key of the last message the user saw, so a chat opens at what is new // botId -> { messageUuid: ['👍', …] }, shown under replies; just for the user, not sent to the Bot
 // Decision cards: a Bot asks the user to pick one option; the answer comes back to it as a message. Open cards stay until answered; answered ones are kept two weeks so the chat can show what was decided.
 const REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅', '🙏', '🔥'];
 const DECISION_KEEP_MS = 14 * 24 * 3600 * 1000;
@@ -478,6 +479,36 @@ async function summarizeThread(t, latest = '') {
     save(); broadcastBots();
   } catch (e) { console.error('thread summary failed', e.message); }
 }
+// A Bot's (or thread's) conversation as the SDK stored it. A thread's forked session also holds the main conversation, so cut it at the thread's first message.
+async function loadHistory(bot) {
+  let messages = [];
+  if (bot.sessionId) { try { messages = await getSessionMessages(bot.sessionId, { dir: bot.cwd }); } catch {} if (!messages.length) { try { messages = await getSessionMessages(bot.sessionId); } catch {} } }
+  if (bot.threadOf) { const i = messages.findIndex((x) => x.type === 'user' && JSON.stringify(x.message?.content || '').includes(`[thread:${bot.id}`)); messages = i >= 0 ? messages.slice(i) : []; if (!messages.length && bot.turns.length) messages = bot.turns.map((t) => ({ type: 'user', message: { role: 'user', content: t.text } })); }
+  return messages;
+}
+// "What did I miss?": a short TL;DR of everything after the message the user last read.
+const catchupCache = new Map();
+async function catchup(bot, afterKey) {
+  const messages = await loadHistory(bot);
+  const i = afterKey ? messages.findIndex((m) => m.uuid === afterKey) : -1;
+  const lines = [];
+  for (const m of messages.slice(i + 1)) {
+    const c = m.message?.content; if (m.parent_tool_use_id) continue;
+    const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b.type === 'text').map((b) => b.text).join('\n') : '';
+    if (!text.trim() || /^\s*<(system-reminder|local-command|command-name|task-notification)/.test(text)) continue;
+    lines.push(`${m.type === 'user' ? 'Incoming' : 'Bot'}: ${text.trim().slice(0, 4000)}`);
+  }
+  const transcript = lines.join('\n\n');
+  if (transcript.length < 600) return { summary: '', size: transcript.length };
+  const cacheKey = `${bot.id}|${afterKey}|${messages.at(-1)?.uuid}`; if (catchupCache.has(cacheKey)) return catchupCache.get(cacheKey);
+  let out = '';
+  try {
+    for await (const m of query({ prompt: `The user is coming back to their chat with the Bot "${bot.name}". Here is everything that happened since they last read it ("Incoming" = messages from the user, other Bots, routines or decisions; "Bot" = the Bot's replies):\n\n${transcript.slice(-60000)}\n\nWrite a catch-up TL;DR in 2 to 5 short markdown bullets: lead with the outcome, then anything that needs the user (decisions, blockers, things to approve). No preamble. Use the language the conversation uses.`, options: { model: 'haiku', maxTurns: 1, settingSources: [], allowedTools: [], canUseTool: async () => ({ behavior: 'deny', message: 'No tools.' }), env: childEnv(), cwd: DATA_DIR, systemPrompt: 'You write very short catch-up summaries of work conversations.' } })) if (m.type === 'result') out = m.result || '';
+  } catch (e) { console.error('catchup failed', e.message); }
+  const res = { summary: out.trim(), size: transcript.length };
+  if (res.summary) { catchupCache.set(cacheKey, res); if (catchupCache.size > 200) catchupCache.delete(catchupCache.keys().next().value); }
+  return res;
+}
 const getRuntime = (id) => { let rt = runtimes.get(id); if (!rt) { const bot = botById(id); if (!bot) throw new Error('No such bot'); rt = new BotRuntime(bot); runtimes.set(id, rt); } return rt; };
 
 // ---------------------------------------------------------------- account + plan usage (top-left menu)
@@ -683,6 +714,11 @@ const server = http.createServer(async (req, res) => {
       store.bots.push(bot); save(); broadcastBots();
       return json(res, 200, { bot: publicBot(bot) });
     }
+    if ((m = p.match(/^\/api\/bots\/([0-9a-f-]+)\/catchup$/)) && req.method === 'POST') {
+      const bot = botById(m[1]); if (!bot) return json(res, 404, { error: 'no such bot' });
+      const { after } = await readBody(req);
+      return json(res, 200, await catchup(bot, typeof after === 'string' ? after.slice(0, 64) : null));
+    }
     // Files a Bot produced (videos, images, PDFs…) are shown inline in the chat; only files inside the Bot's folder are served.
     if ((m = p.match(/^\/api\/bots\/([0-9a-f-]+)\/file$/)) && req.method === 'GET') {
       const bot = botById(m[1]); if (!bot) return json(res, 404, { error: 'no such bot' });
@@ -808,10 +844,8 @@ wss.on('connection', (ws, req) => {
         case 'subscribe': {
           current?.unsubscribe(ws);
           current = getRuntime(bot.id); current.subscribe(ws);
-          let messages = [];
-          if (bot.sessionId) { try { messages = await getSessionMessages(bot.sessionId, { dir: bot.cwd }); } catch {} if (!messages.length) { try { messages = await getSessionMessages(bot.sessionId); } catch {} } }
-          if (bot.threadOf) { const i = messages.findIndex((x) => x.type === 'user' && JSON.stringify(x.message?.content || '').includes(`[thread:${bot.id}`)); messages = i >= 0 ? messages.slice(i) : []; if (!messages.length && bot.turns.length) messages = bot.turns.map((t) => ({ type: 'user', message: { role: 'user', content: t.text } })); } // a forked session also holds the main conversation
-          reply({ type: 'history', botId: bot.id, messages, live: current.turnBuffer, busy: current.busy, pending: [...current.pending.values()].map((p) => p.req), reactions: store.reactions[bot.id] || {} });
+          const messages = await loadHistory(bot); // a forked session also holds the main conversation
+          reply({ type: 'history', botId: bot.id, messages, live: current.turnBuffer, busy: current.busy, pending: [...current.pending.values()].map((p) => p.req), reactions: store.reactions[bot.id] || {}, readKey: store.readMarks[bot.id] || null });
           break;
         }
         case 'unsubscribe': current?.unsubscribe(ws); current = null; break;
@@ -846,6 +880,7 @@ wss.on('connection', (ws, req) => {
           summarizeThread(t);
           break;
         }
+        case 'read': { const k = String(m.key || '').slice(0, 64); if (k && store.readMarks[bot.id] !== k) { store.readMarks[bot.id] = k; save(); } break; }
         case 'decide': {
           const d = store.decisions.find((x) => x.id === m.id && x.botId === bot.id); if (!d || d.status !== 'open') break;
           const note = typeof m.note === 'string' ? m.note.trim().slice(0, 2000) : '';

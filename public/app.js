@@ -1,6 +1,6 @@
 /* claude-chat v2 — Bots UI. Vanilla JS, no build step. */
 const $ = (id) => document.getElementById(id);
-const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread','threadPanel','threadFrame','alsoMainWrap','alsoMain'].map((k) => [k, $(k)]));
+const els = Object.fromEntries(['app','botList','connDot','btnNewBot','btnNewBot2','btnBack','botHead','headAvatar','headName','headLabel','headState','btnDetails','scroll','thread','emptyNoBot','emptyNewBot','emptyAvatar','emptyTitle','starters','composerWrap','input','btnSend','btnStop','busyLabel','drawer','btnCloseDrawer','scrim','dAvatar','dShapes','dColors','dName','dLabel','dCwd','dModel','dPerm','dSave','routineCount','routineList','addRoutine','rName','rPrompt','rKind','rTimeWrap','rMinWrap','rTime','rMinutes','rAdd','dMemory','dReset','dDelete','createDialog','createForm','cAvatar','cShapes','cColors','cName','cLabel','cCwd','cCancel','cFolderHint','cAdv','cDirChips','dDirChips','authGate','authInput','authBtn','jump','sideBanner','decisionList','mainBanner','btnNotify','notifyHint','attachList','btnAttach','fileInput','dropOverlay','cPerm','connDialog','connGrid','connForm','connClose','btnConnectors','dConnectors','dManageConn','btnVault','vaultDialog','vaultClose','vaultList','vaultAddForm','opStatus','opToken','opSave','mentionPop','btnMic','recBar','recTime','btnRecCancel','slashPop','btnAccount','acctAvatar','acctAvatar2','accountDialog','acctClose','acctName','acctEmail','acctUsageRow','acctUsageSub','acctUsagePct','acctUsageDetail','docDialog','docTitle','docBody','docClose','docShare','btnThreads','threadCount','threadBar','threadBarText','threadBarClose','btnNewThread','threadPanel','threadFrame','alsoMainWrap','alsoMain','catchup'].map((k) => [k, $(k)]));
 
 marked.setOptions({ gfm: true, breaks: false });
 const MEDIA_RE = /(?:^|(?<=[\s(\[`"']))(\/(?:[^\s`"'<>()\[\]]|\\ )+?\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|mp3|wav|m4a|pdf|md|markdown|txt|csv))(?=$|[\s`"')\]>.,;:!?])/gi;
@@ -141,7 +141,7 @@ function handle(m) {
   if (m.botId && m.botId !== state.botId) return; // another bot's stream
   switch (m.type) {
     case 'history': {
-      state.reactions = m.reactions || {};
+      state.reactions = m.reactions || {}; state.readKey = m.readKey || null;
       resetThread();
       replayHistory(m.messages || []);
       for (const msg of m.live || []) onSdk(msg);
@@ -149,7 +149,7 @@ function handle(m) {
       setBusy(!!m.busy);
       paintThreadRoot(); paintThreadChips();
       if (!(m.messages || []).length && !(m.live || []).length) showNewBotIntro();
-      state.stick = true; scrollBottom(true);
+      openAtNew();
       break;
     }
     case 'sdk': onSdk(m.msg); break;
@@ -196,6 +196,7 @@ function finishTurn(result) {
   else { const steps = `${t.stepCount} step${t.stepCount === 1 ? '' : 's'}`; const dur = result ? fmtDur(result.duration_ms) : state.replaying ? null : fmtDur(Date.now() - t.started); t.sumText.textContent = dur ? `Worked for ${dur} · ${steps}` : steps; }
   for (const s of t.steps.querySelectorAll('.step.running')) s.classList.remove('running');
   if (t.uuid) t.el.dataset.key = t.uuid;
+  if (!state.replaying) setTimeout(noteSeen, 300);
   if (t.textEl?.dataset.raw && !t.el.querySelector(':scope > .msg-actions')) addMsgActions(t.el, { raw: t.textEl.dataset.raw, key: t.uuid, md: t.textEl });
   state.turn = null;
 }
@@ -405,6 +406,7 @@ function send(text) {
   }
   const cb = currentBot();
   if (cb?.isThread && els.alsoMain.checked && text) { wsSend({ type: 'send', botId: cb.threadOf, text: `[From your thread "${cb.name}"]\n${text}` }); els.alsoMain.checked = false; }
+  state.anchor = null; state.stick = true; els.catchup.classList.add('hidden');
   hideEmpties(); finishTurn(); addUserBubble(`${text}${files.length ? `\n\n[Attached files]\n${files.map((f) => `- ${f}`).join('\n')}` : ''}`.trim());
   els.input.value = ''; autosize(); setBusy(true); state.attachments = []; renderAttachments();
   wsSend({ type: 'send', botId: state.botId, text, attachments: files }); ensureTurn();
@@ -1111,3 +1113,61 @@ function dismissDecision(el, d) {
   el.classList.add('leaving');
   setTimeout(() => { decide(d, { dismiss: true }); el.remove(); const n = els.decisionList.querySelectorAll('.decision').length; const h = els.decisionList.querySelector('.dec-title'); if (h) h.textContent = `Decisions · ${n}`; els.decisionList.classList.toggle('hidden', !n); }, 160);
 }
+
+
+// ---- open where it matters: land on the latest message, mark what is new since you last read, offer a jump back and a TL;DR.
+const chatMsgs = () => [...els.thread.querySelectorAll(':scope > .msg:not(.thread-root)')];
+function scrollToEl(el, pad = 8) { const s = els.scroll; s.scrollTop += el.getBoundingClientRect().top - s.getBoundingClientRect().top - pad; }
+function openAtNew() {
+  els.catchup.classList.add('hidden'); els.catchup.innerHTML = ''; state.anchor = null; state.sentRead = state.readKey;
+  els.thread.querySelector('.new-divider')?.remove();
+  const msgs = chatMsgs();
+  if (!msgs.length) { state.stick = true; scrollBottom(true); return; }
+  const readEl = state.readKey && els.thread.querySelector(`:scope > .msg[data-key="${CSS.escape(state.readKey)}"]`);
+  const firstNew = readEl ? msgs[msgs.indexOf(readEl) + 1] : null;
+  const fresh = firstNew ? msgs.slice(msgs.indexOf(firstNew)) : [];
+  if (firstNew) { const d = document.createElement('div'); d.className = 'new-divider'; d.innerHTML = '<span>New</span>'; els.thread.insertBefore(d, firstNew); }
+  // Land on the start of the latest message; a short one simply shows at the bottom.
+  const last = msgs[msgs.length - 1];
+  requestAnimationFrame(() => {
+    if (last.offsetHeight > els.scroll.clientHeight * 0.75) { state.stick = false; state.anchor = last; scrollToEl(last); }
+    else { state.stick = true; scrollBottom(true); }
+    setTimeout(noteSeen, 1200);
+  });
+  if (fresh.length) showCatchup(fresh, firstNew);
+}
+function showCatchup(fresh, firstNew) {
+  const n = fresh.length, size = fresh.reduce((a, el) => a + (el.innerText || '').length, 0);
+  const bar = els.catchup; bar.classList.remove('hidden');
+  bar.innerHTML = `<div class="cu-row"><span class="cu-dot"></span><span class="cu-text"><b>${n} new</b> since you last read</span><button class="cu-btn" data-a="first">↑ First new</button><button class="cu-btn" data-a="tldr">✨ TL;DR</button><button class="cu-x" data-a="close" aria-label="Close">✕</button></div><div class="cu-body hidden md"></div>`;
+  const body = bar.querySelector('.cu-body'), forKey = state.readKey, botId = state.botId;
+  const loadTldr = async () => {
+    body.classList.remove('hidden'); body.innerHTML = '<span class="muted">Reading what you missed…</span>';
+    try {
+      const r = await api(`/api/bots/${botId}/catchup`, { method: 'POST', body: { after: forKey } });
+      if (state.botId !== botId) return;
+      body.innerHTML = r.summary ? renderMd(r.summary) : '<span class="muted">Short enough to read as is.</span>';
+    } catch (e) { body.innerHTML = `<span class="muted">Couldn't summarize: ${esc(e.message)}</span>`; }
+  };
+  bar.onclick = (e) => {
+    const a = e.target.closest('button')?.dataset.a; if (!a) return;
+    if (a === 'first') { state.stick = false; state.anchor = null; scrollToEl(els.thread.querySelector('.new-divider') || firstNew, 4); }
+    if (a === 'tldr') body.classList.contains('hidden') || !body.innerHTML ? loadTldr() : body.classList.add('hidden');
+    if (a === 'close') bar.classList.add('hidden');
+  };
+  if (n >= 3 || size > 1500) loadTldr(); // a lot happened: summarize without being asked
+}
+// Remember the newest message you have actually had on screen (server-side, so every device agrees).
+function noteSeen() {
+  if (!state.botId || document.hidden) return;
+  const s = els.scroll.getBoundingClientRect(); let key = null;
+  for (const el of els.thread.querySelectorAll(':scope > .msg[data-key]')) if (el.getBoundingClientRect().top < s.bottom - 40) key = el.dataset.key;
+  if (!key || key === state.sentRead) return;
+  clearTimeout(state.readTimer);
+  state.readTimer = setTimeout(() => { state.sentRead = key; wsSend({ type: 'read', botId: state.botId, key }); }, 800);
+}
+let seenThrottle = 0;
+els.scroll.addEventListener('scroll', () => { const now = Date.now(); if (now - seenThrottle > 400) { seenThrottle = now; noteSeen(); } }, { passive: true });
+for (const ev of ['wheel', 'touchstart', 'keydown']) els.scroll.addEventListener(ev, () => { state.anchor = null; }, { passive: true });
+// Images and videos load after the jump and push content around: keep the landing spot (or the bottom) in place.
+new ResizeObserver(() => { if (state.anchor) scrollToEl(state.anchor); else if (state.stick) scrollBottom(true); }).observe(els.thread);

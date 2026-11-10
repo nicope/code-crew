@@ -456,3 +456,16 @@ button, a, .bot-row { touch-action: manipulation; -webkit-tap-highlight-color: t
 .dec-x { background: none; border: 0; color: var(--faint); font-size: 12px; padding: 2px 4px; margin-left: 2px; cursor: pointer; border-radius: 6px; flex-shrink: 0; line-height: 1; }
 .dec-x:hover { color: var(--text); background: var(--raised-2); }
 .decision.leaving { opacity: 0; transform: translateX(-12px); transition: opacity .15s, transform .15s; }
+
+/* catch-up: what is new since you last read */
+.catchup { margin: 8px auto 0; width: min(760px, calc(100% - 24px)); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--raised); border-radius: 12px; padding: 6px 6px 6px 12px; flex-shrink: 0; z-index: 2; box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+.catchup.hidden { display: none; }
+.cu-row { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
+.cu-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.cu-text { flex: 1; min-width: 120px; color: var(--muted); } .cu-text b { color: var(--text); }
+.cu-btn { background: var(--raised-2); border: 0; color: var(--text); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.cu-x { background: none; border: 0; color: var(--muted); padding: 4px 8px; cursor: pointer; }
+.cu-body { font-size: 13.5px; padding: 6px 6px 4px 2px; max-height: 40vh; overflow-y: auto; }
+.cu-body ul { margin: 4px 0; padding-left: 18px; } .cu-body p { margin: 4px 0; }
+.new-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--accent); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.new-divider::before, .new-divider::after { content: ''; flex: 1; height: 1px; background: color-mix(in srgb, var(--accent) 55%, transparent); }
