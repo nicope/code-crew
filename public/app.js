@@ -1237,3 +1237,25 @@ function vaultSheet({ name, why, fields }) {
     dlg.showModal(); setTimeout(() => boxes[0].focus(), 50);
   });
 }
+
+// ---- image viewer: tap an image to view it full screen; ✕, tap outside, swipe down or Esc closes. Pinch to zoom.
+(function lightbox() {
+  const box = document.createElement('div'); box.className = 'lightbox hidden';
+  box.innerHTML = '<div class="lb-bar"><span class="lb-name"></span><a class="lb-btn lb-open" target="_blank" rel="noopener" title="Open original">↗</a><button class="lb-btn lb-close" aria-label="Close">✕</button></div><div class="lb-stage"><img alt=""></div>';
+  document.body.appendChild(box);
+  const img = box.querySelector('img'), name = box.querySelector('.lb-name'), open = box.querySelector('.lb-open');
+  const close = () => { box.classList.add('hidden'); img.removeAttribute('src'); };
+  const show = (src, label) => { img.src = src; name.textContent = label || ''; open.href = src; box.classList.remove('hidden'); };
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('figure.media a, a.inline-media'); if (!a) return;
+    const im = a.querySelector('img'); if (!im) return;
+    e.preventDefault(); show(a.href, im.alt);
+  });
+  box.querySelector('.lb-close').onclick = close;
+  box.querySelector('.lb-stage').addEventListener('click', (e) => { if (e.target !== img) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !box.classList.contains('hidden')) close(); });
+  let y0 = null;
+  box.addEventListener('touchstart', (e) => { y0 = e.touches.length === 1 && (window.visualViewport?.scale || 1) <= 1.01 ? e.touches[0].clientY : null; }, { passive: true });
+  box.addEventListener('touchmove', (e) => { if (y0 == null) return; const dy = e.touches[0].clientY - y0; if (dy > 0) img.style.transform = `translateY(${dy}px)`; }, { passive: true });
+  box.addEventListener('touchend', (e) => { if (y0 == null) return; const dy = (e.changedTouches[0]?.clientY || y0) - y0; img.style.transform = ''; y0 = null; if (dy > 90) close(); });
+})();
